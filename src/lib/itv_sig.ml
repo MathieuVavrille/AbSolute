@@ -119,7 +119,7 @@ module type ITV = sig
 
   val mean: t -> bound list
   val split: t -> bound list -> (t bot) list
-  val split_integer: t -> bound list -> (t bot) list
+  val split_integer: t -> (t bot) list
 
   (* pruning *)
   (* ------- *)

@@ -55,6 +55,7 @@ module type BOUND = sig
   val of_string_up: string -> t
   val of_string_down: string -> t
 
+  val enumerate: t -> t -> t list
 
   (* printing *)
   (* ******** *)

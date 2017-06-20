@@ -39,6 +39,8 @@ let of_string x =
 let of_string_up = of_string
 let of_string_down = of_string
 
+let enumerate (a:t) (b:t) = failwith "Can't enumerate float"
+  
 (* Note: adds 0. to favor positive 0 *)
 let to_string x = string_of_float (x+.0.)
 

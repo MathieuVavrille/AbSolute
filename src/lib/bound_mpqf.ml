@@ -30,7 +30,9 @@ let of_string x = Mpqf.of_string x
 (* TODO *)    
 let of_string_up = of_string
 let of_string_down = of_string
-    
+
+let enumerate (a:t) (b:t) = failwith "Can't enumerate mpqf"
+  
 (* Note: adds 0. to favor positive 0 *)
 let to_string x = Mpqf.to_string x
 

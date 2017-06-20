@@ -268,7 +268,8 @@ module Make(B:BOUND) = struct
     in aux [] l m
 
   (* integer optimized verison *)
-  let split_integer ((l,h):t) (m:bound list) : (t bot) list =
+  let split_integer ((l,h):t) : (t bot) list =
+    let m = mean (l, h) in
     let rec aux acc cur (bounds:bound list) =
       match bounds with
       |  hd::tl ->

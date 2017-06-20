@@ -111,6 +111,7 @@ module Box (I:ITV) = struct
       ) a (Env.min_binding a)
 
   (* variable with maximal range if real or with smallest range if integer *)
+  (*NB: Integers will be advantaged in mixed programs*)
   let mix_range (a:t) : var * i =
     Env.fold
       (fun v i (vo,io) ->
@@ -162,7 +163,7 @@ module Box (I:ITV) = struct
 let split_along (a:t) (v:var) : t list =
     let i = Env.find v a in
     let i_list =
-      if is_integer v then I.split_integer i (I.mean i)
+      if is_integer v then I.split_integer i
       else I.split i (I.mean i)
     in
     List.fold_left (fun acc b ->

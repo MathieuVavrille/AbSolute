@@ -54,6 +54,7 @@ MLFILES = \
   src/lib/bound_sig.ml \
   src/lib/bound_mpqf.ml \
   src/lib/bound_float.ml \
+  src/lib/bound_int.ml \
   src/lib/itv_sig.ml \
   src/lib/itv.ml \
 	src/lib/newitv.ml \

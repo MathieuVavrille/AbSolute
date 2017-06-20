@@ -216,19 +216,11 @@ module Itv(B:BOUND) = struct
 	       itv::acc
     in aux [] l m
 
-  let split_integer ((l,h):t) (m:bound list) : (t bot) list =
-    let to_pair = ref l in
+  let split_integer ((l,h):t) : (t bot) list =
     let list =
-      List.rev_map (fun e ->
-	      let ll,hh =
-          let a, b = B.floor e, B.ceil e in
-          if B.equal a b then a, B.add_up b B.one
-	        else a, b
-        in
-	      let res = (!to_pair,ll) in to_pair := hh ; res)
-	      m
+      List.rev_map (fun e -> (e, e)) (B.enumerate l h)
     in
-    List.rev_map check_bot ((!to_pair,h)::list)
+    List.rev_map check_bot list
 
 
   let prune ((l,h):t) ((l',h'):t) : t list * t  =
@@ -734,3 +726,5 @@ end
 
 module ItvF = Itv(Bound_float)
 (* module ItvQ = Itv(Bound_rational) *)
+
+module ItvI = Itv(Bound_int)
