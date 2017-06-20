@@ -1,0 +1,8 @@
+init{
+  int x = [-20; 20];
+  int y = [-20; 20];
+}
+constraints{
+  x - y > 0;
+  x + 2*y < 3;
+}
