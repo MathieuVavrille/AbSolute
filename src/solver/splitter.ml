@@ -45,11 +45,13 @@ module Make (Abs : AbstractCP) = struct
   include Boolean(Abs)
 
   let init (problem:Csp.prog) : Abs.t =
+    (*Csp.(List.fold_left (fun abs data ->
+      Abs.add_var abs data)  Abs.empty problem.init)*)
     Csp.(List.fold_left (fun abs (t,v,d) ->
       let c1,c2 = domain_to_constraints (t,v,d) in
       let abs = Abs.add_var abs (t,v) in
       Abs.filter (Abs.filter abs c1) c2
-    )  Abs.empty problem.init)
+    ) Abs.empty problem.init)
 
   type consistency = Full of Abs.t
 		     | Maybe of Abs.t * Csp.bexpr list

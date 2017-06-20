@@ -31,7 +31,7 @@ type bexpr =
 
 type typ = INT | REAL
 
-type dom = Finite of i*i | Minf of i | Inf of i | Top
+type dom = Finite of i*i | Enumerated of i list | Minf of i | Inf of i | Top
 
 (* assign *)
 type assign = (typ * var * dom)
@@ -200,6 +200,7 @@ let print_dom fmt = function
   | Minf i -> Format.fprintf fmt "[-oo; %.2f]" i
   | Inf i -> Format.fprintf fmt "[%.2f; 00]" i
   | Top -> Format.fprintf fmt "[-oo; 00]"
+  | Enumerated l -> Format.fprintf fmt "Un ensemble de valeurs" (*TODO*) 
 
 let print_assign fmt (a,b,c) =
   Format.fprintf fmt "%a %a=%a" print_typ a print_var b print_dom c

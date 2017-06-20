@@ -133,6 +133,11 @@ init:
   | TOK_LBRACKET TOK_MINF TOK_SEMICOLON const TOK_RBRACKET       {Minf ($4)}
   | TOK_LBRACKET const TOK_SEMICOLON TOK_INF TOK_RBRACKET        {Inf ($2)}
   | TOK_LBRACKET const TOK_SEMICOLON const TOK_RBRACKET          {Finite($2,$4)}
+  | TOK_LBRACE enum_list TOK_LBRACE 							 {Enumerated($2)}
+
+enum_list:
+  | const							{[$1]}
+  | const TOK_COMMA enum_list		{$1::$3}
 
 const:
   | TOK_const {$1}

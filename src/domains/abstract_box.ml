@@ -127,7 +127,7 @@ module Box (I:ITV) = struct
     (B.to_float_up (I.range i) <= !Constant.precision)
 
   let volume (a:t) : float =
-    let vol_bound = Env.fold (fun _ x v -> B.mul_down (I.range x) v) a B.one in
+    let vol_bound = Env.fold (fun var x v -> B.mul_down (if is_integer var then B.add_up (I.range x) B.one else I.range x) v) a B.one in
     B.to_float_up vol_bound
 
 
@@ -336,8 +336,11 @@ let split_along (a:t) (v:var) : t list =
 
   let empty : t = Env.empty
 
-  let add_var abs (typ,var) : t =
-    Env.add (if typ = INT then (var^"%") else var) I.top abs
+  let add_var abs (typ,var) : t = (*,dom) : t =*)
+    (*let interval = match dom with
+      | Finite (l, h) -> I.of_floats l h
+      | _ -> failwith "can't handle non-finite domains"
+  in*) Env.add (if typ = INT then (var^"%") else var) I.top abs (*interval abs*)
 
   let is_enumerated a =
     Env.for_all (fun v i -> (is_integer v |> not) || I.is_singleton i) a
