@@ -135,10 +135,11 @@ init:
   | TOK_LBRACKET const TOK_SEMICOLON const TOK_RBRACKET          {Finite($2,$4)}
   | TOK_LBRACE enum_list TOK_LBRACE 							 {Enumerated($2)}
 
+
 enum_list:
   | const							{[$1]}
   | const TOK_COMMA enum_list		{$1::$3}
-
+  
 const:
   | TOK_const {$1}
   | TOK_MINUS TOK_const {(-.$2)}

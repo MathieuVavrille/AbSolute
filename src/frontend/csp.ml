@@ -121,6 +121,19 @@ let rec neg_bexpr = function
   | Or (b1,b2) -> And (neg_bexpr b1, neg_bexpr b2)
   | Not b -> b
 
+let rec variables_of_expr e l = match e with
+  | Unary(op, e1) -> variables_of_expr e1 l
+  | Binary(op, e1, e2) -> variables_of_expr e1 (variables_of_expr e2 l)
+  | Var(v) when List.exists (fun a -> a = v) l -> l
+  | Var(v) -> v::l
+  | _ -> l
+
+(* The list of variables in a constraint, start with l=[] *)
+let rec variables_of_c c l = match c with
+  | Cmp(_, e1, e2) -> variables_of_expr e1 (variables_of_expr e2 l)
+  | And(e1, e2) | Or(e1, e2) -> variables_of_c e1 (variables_of_c e2 l)
+  | Not(e1) -> variables_of_c e1 l
+
 
 (*************************************************************)
 (*                         PREDICATES                        *)
@@ -200,7 +213,7 @@ let print_dom fmt = function
   | Minf i -> Format.fprintf fmt "[-oo; %.2f]" i
   | Inf i -> Format.fprintf fmt "[%.2f; 00]" i
   | Top -> Format.fprintf fmt "[-oo; 00]"
-  | Enumerated l -> Format.fprintf fmt "Un ensemble de valeurs" (*TODO*) 
+  | Enumerated l -> Format.fprintf fmt "Un ensemble de valeurs" (*TODO*)
 
 let print_assign fmt (a,b,c) =
   Format.fprintf fmt "%a %a=%a" print_typ a print_var b print_dom c
