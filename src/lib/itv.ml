@@ -5,9 +5,13 @@
 *)
 
 
+open Datatypes
 open Bot
 open Bound_sig
+open Itv_sig
+open Apron
 
+module R = Rat
 
 module Itv(B:BOUND) = struct
 
@@ -108,7 +112,7 @@ module Itv(B:BOUND) = struct
     | _ -> Format.fprintf fmt "[%f;%f]" (B.to_float_down l) (B.to_float_up h)
 
   let to_expr ((l, h):t) =
-    ((Csp.GEQ, Csp.Cst(B.to_float_down l)), 
+    ((Csp.GEQ, Csp.Cst(B.to_float_down l)),
      (Csp.LEQ, Csp.Cst(B.to_float_up h)))
 
   (************************************************************************)
@@ -477,7 +481,7 @@ module Itv(B:BOUND) = struct
           Nb (B.min (B.neg (B.root_down il p)) (B.neg (B.root_down ih p)), B.max (B.root_up il p) (B.root_up ih p))
       | _ -> failwith "can only handle stricly positive roots"
     else failwith  "cant handle non_singleton roots"
-    
+
 
   (* interval min *)
   let min ((l1, u1):t) ((l2, u2):t) =
@@ -728,3 +732,347 @@ module ItvF = Itv(Bound_float)
 (* module ItvQ = Itv(Bound_rational) *)
 
 module ItvI = Itv(Bound_int)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module ItvRat = struct
+
+  module B = Bound_int
+
+  type bound = B.t
+
+  type t = R.t * R.t
+
+  let singleton (x:R.t) = x, x
+
+  let zero : t = singleton R.zero
+  let one : t = singleton R.one
+  let minus_one: t = singleton R.minus_one
+  let top : t = R.minus_inf, R.inf
+  let zero_one : t = R.zero, R.one
+  let minus_one_zero : t = R.minus_one, R.zero
+  let minus_one_one : t = R.minus_one, R.one
+  let positive : t = R.zero, R.inf
+  let negative : t = R.minus_inf, R.zero
+
+  (* approximation of pi *)
+  let i_pi : t = singleton R.zero
+
+  let of_bounds l h = R.of_int l, R.of_int h
+  let of_ints l h = R.of_int l, R.of_int h
+  (* val of_rats: Q.t -> Q.t -> t *)
+  let of_floats l h = R.of_float l, R.of_float h
+  (* [a,b] *)
+
+  let of_bound x = of_bounds x x
+  let of_int x = of_ints x x
+  (* val of_rat: Q.t -> t *)
+  let of_float x = of_floats x x
+  (* {a} *)
+
+  let hull a b = R.of_int (min a b), R.of_int (max a b)
+  (* [min a b, max a b] *)
+
+  let hull_rat a b = R.min a b, R.max a b
+
+  let check_bot (l, h) = if R.leq l h then Nb (l,h) else Bot
+
+  (************************************************************************)
+  (* PRINTING and CONVERSIONS *)
+  (************************************************************************)
+
+  let to_float_range (l, h) = R.to_float l, R.to_float h
+  let to_int_range (l, h) = let l2 = R.to_int l in
+			    let l3 = if R.of_int l2 < l then l2+1 else l2 in
+			    let h2 = R.to_int h in
+			    let h3 = if R.of_int h2 > h then h2 else h2 in l3, h3
+
+  let filter_bounds (l,h) =
+    let inf, sup = to_int_range (l, h) in
+    check_bot (R.of_int inf, R.of_int sup)
+
+  let to_string (l, h) = let l2, h2 = to_int_range (l, h) in
+			 Printf.sprintf "[%d;%d]" l2 h2
+  let output chan x = output_string chan (to_string x)
+  let sprint () x = to_string x
+  let bprint b x = Buffer.add_string b (to_string x)
+  let pp_print f x = Format.pp_print_string f (to_string x)
+  let print f (l, h) = let l2, h2 = to_int_range (l, h) in
+		       match l2 = h2 with
+		       | true -> Format.fprintf f "{%d}" l2
+		       | false -> Format.fprintf f "[%d, %d]" l2 h2
+
+  let to_expr ((l, h):t) =
+    ((Csp.GEQ, Csp.Cst(R.to_float l)),
+     (Csp.LEQ, Csp.Cst(R.to_float h)))
+
+  (************************************************************************)
+  (* SET-THEORETIC *)
+  (************************************************************************)
+
+
+  (* operations *)
+  (* ---------- *)
+
+  let join (l1, h1) (l2, h2) = R.min l1 l2, R.max h1 h2
+  let meet (l1, h1) (l2, h2) = check_bot (R.max l1 l2, R.min h1 h2)
+
+  (* returns None if the set-union cannot be exactly represented *)
+  let union ((l1,h1):t) ((l2,h2):t) : t option =
+    if R.leq l1 h2 && R.leq l2 h1 then Some (R.min l1 l2, R.max h1 h2)
+    else None
+
+
+  (* predicates *)
+  (* ---------- *)
+
+  let equal (l1, h1) (l2, h2) = R.equal l1 l2 && R.equal h1 h2
+
+  let subseteq ((l1,h1):t) ((l2,h2):t) : bool =
+    R.geq l1 l2 && R.leq h1 h2
+
+  let contains ((l,h):t) (x:B.t) : bool =
+    R.leq l (R.of_int x) && R.leq (R.of_int x) h
+
+  let intersect ((l1,h1):t) ((l2,h2):t) : bool =
+    R.leq l1 h2 && R.leq l2 h1
+
+  let is_bounded (l, h) = R.is_real l && R.is_real h
+  let is_singleton (l, h) = R.is_real l && R.equal l h
+
+
+  (* mesure *)
+  (* ------ *)
+
+  (* length of the intersection (>= 0) *)
+  let overlap ((l1,h1):t) ((l2,h2):t) : int  =
+    let l11, h11 = to_int_range (l1, h1) in
+    let l22, h22 = to_int_range (l2, h2) in
+   max 0 ((min h11 h22) - (max l11 l22))
+
+  let range (l, h) = let l2, h2 = to_int_range (l, h) in
+		     h2-l2 (* TODO: Modifier pour avoir la cardinalité, impose de modifier aussi la fonction qui calcule le volume *)
+  let magnitude (l, h) = let l2, h2 = to_int_range (l, h) in
+			 max (abs l2) (abs h2) (* C'est bien ça sur les entiers où il faut ajouter 1? *)
+
+
+  (* split *)
+  (* ----- *)
+
+  let mean (l, h) = let l2, h2 = to_int_range (l, h) in
+		    [(h2+l2)/2]
+  let split (l, h) m = failwith "Don't care it is not integer"
+  let split_integer (l, h) = let l2, h2 = to_int_range (l, h) in
+			     let list = List.rev_map of_int (B.enumerate l2 h2) in
+			     List.rev_map check_bot list
+
+
+  (* pruning *)
+  (* Assume that the bounds are integers, it should be the case because we always filter after HC4 *)
+  let prune (l, h) (l', h') = let (l, h), (l', h') = to_int_range (l, h), to_int_range (l', h') in
+			      match l < l', h' < h with
+			      | true, true -> [(R.of_int l, R.of_int (l'-1)); (R.of_int (h'+1), R.of_int h)], (R.of_int l', R.of_int h')
+			      | true, false -> [(R.of_int l, R.of_int (min h (l'-1)))], (R.of_int l', R.of_int h)
+			      | false, true -> [(R.of_int (max (h'+1) l), R.of_int h)], (R.of_int l, R.of_int h')
+			      | false, false -> [], (R.of_int l, R.of_int h)
+
+  (************************************************************************)
+  (* INTERVAL ARITHMETICS (FORWARD EVALUATION) *)
+  (************************************************************************)
+
+  let neg (l, h) = R.neg h, R.neg l
+  let abs (l, h) = if contains (l, h) 0 then
+      R.zero, R.max (R.abs l) h
+    else
+      hull_rat (R.abs l) (R.abs h)
+  let sqrt (l, h) = failwith "No sqrt on integers"
+
+  let add (l1, h1) (l2, h2) = R.add l1 l2, R.add h1 h2
+  let sub (l1, h1) (l2, h2) = R.sub l1 h2, R.sub h1 l2
+
+  let mix4 mul ((l1,h1):t) ((l2,h2):t) =
+    R.min (R.min (mul l1 l2) (mul l1 h2)) (R.min (mul h1 l2) (mul h1 h2)),
+    R.max (R.max (mul l1 l2) (mul l1 h2)) (R.max (mul h1 l2) (mul h1 h2))
+
+  let mul =
+    mix4 R.mul
+
+  (* helper: assumes i2 has constant sign *)
+  let div_sign =
+    mix4 R.div
+
+  (* return valid values (possibly Bot) + possible division by zero *)
+  let div (i1:t) (i2:t) : t bot * bool =
+    (* split into positive and negative dividends *)
+    let pos = (lift_bot (div_sign i1)) (meet i2 positive)
+    and neg = (lift_bot (div_sign i1)) (meet i2 negative) in
+    (* joins the result *)
+    join_bot2 join pos neg,
+    contains i2 B.zero
+
+  (* returns valid value when the exponant is a singleton positive integer. fails otherwise*)
+  let pow i1 i2 = failwith "No interval pow on integers"
+  let n_root (i1:t) (i2:t) = failwith "No interval root on integers"
+
+  let cos (i1:t) = failwith "No interval trigo on integers"
+  let sin (i1:t) = failwith "No interval trigo on integers"
+  let tan (i1:t) = failwith "No interval trigo on integers"
+  let cot (i1:t) = failwith "No interval trigo on integers"
+  let acos (i1:t) = failwith "No interval trigo on integers"
+  let asin (i1:t) = failwith "No interval trigo on integers"
+  let atan (i1:t) = failwith "No interval trigo on integers"
+  let acot (i1:t) = failwith "No interval trigo on integers"
+
+  let ln (i1:t) = failwith "No interval ln on integers"
+  let log (i1:t) = failwith "No interval log on integers"
+  let exp (i1:t) = failwith "No interval exp on integers"
+
+  (* interval min *)
+  let min ((l1, u1):t) ((l2, u2):t) =
+    R.min l1 l2, R.min u1 u2
+
+  (* interval max *)
+  let max ((l1, u1):t) ((l2, u2):t) =
+    R.max l1 l2, R.max u1 u2
+
+  (************************************************************************)
+  (* FILTERING (TEST TRANSFER FUNCTIONS) *)
+  (************************************************************************)
+
+  (* given two interval arguments, return a subset of each argument
+     by removing points that cannot satisfy the predicate;
+     may also return Bot if no point can satisfy the predicate
+   *)
+let filter_leq ((l1,h1):t) ((l2,h2):t) : (t*t) bot =
+    merge_bot2 (check_bot (l1, R.min h1 h2)) (check_bot (R.max l1 l2, h2))
+
+  let filter_geq ((l1,h1):t) ((l2,h2):t) : (t*t) bot =
+    merge_bot2 (check_bot (R.max l1 l2, h1)) (check_bot (l2, R.min h1 h2))
+
+  let filter_lt ((l1,_) as i1:t) ((l2,h2) as i2:t) : (t*t) bot =
+    if is_singleton i1 && is_singleton i2 && R.equal l1 l2 then Bot
+    else if R.leq h2 l1 then Bot
+    else filter_leq i1 i2
+
+  let filter_gt ((l1,h1) as i1:t) ((l2,_) as i2:t) : (t*t) bot =
+    if is_singleton i1 && is_singleton i2 && R.equal l1 l2 then Bot
+    else if R.leq h1 l2 then Bot
+    else filter_geq i1 i2
+
+  let filter_eq (i1:t) (i2:t) : (t*t) bot =
+    lift_bot (fun x -> x,x) (meet i1 i2)
+
+  let filter_neq ((l1,_) as i1:t) ((l2,_) as i2:t) : (t*t) bot =
+    if is_singleton i1 && is_singleton i2 && R.equal l1 l2 then Bot
+    else Nb (i1,i2)
+
+  let filter_lt_int = filter_lt
+    (*merge_bot2
+      (check_bot (l1, B.min h1 (B.sub_up h2 B.one)))
+      (check_bot (B.max (B.add_down l1 B.one) l2, h2))*)
+
+  let filter_gt_int  = filter_gt
+   (* merge_bot2
+      (check_bot (B.max l1 (B.add_down l2 B.one), h1))
+      (check_bot (l2, B.min (B.sub_up h1 B.one) h2))*)
+
+  let filter_neq_int = filter_neq
+    (*match is_singleton (l1,h1), is_singleton (l2,h2) with
+    | true, true when B.equal l1 l2 -> Bot
+    | true, false when B.equal l1 l2 ->
+        merge_bot2 (Nb (l1,l2)) (check_bot (B.add_down l2 B.one, h2))
+    | true, false when B.equal l1 h2 ->
+        merge_bot2 (Nb (l1,l2)) (check_bot (l2, B.sub_up h2 B.one))
+    | false, true when B.equal l1 l2 ->
+        merge_bot2 (check_bot (B.add_down l1 B.one, h1)) (Nb (l2,h2))
+    | false, true when B.equal h1 l2 ->
+        merge_bot2 (check_bot (l1, B.sub_up h1 B.one)) (Nb (l2,h2))
+      | _ -> Nb ((l1,h1),(l2,h2))*)
+
+
+  (* given the interval argument(s) and the expected interval result of
+     a numeric operation, returns refined interval argument(s) where
+     points that cannot contribute to a value in the result are
+     removed;
+     may also return Bot if no point in an argument can lead to a
+     point in the result
+   *)
+
+(* r = -i => i = -r *)
+  let filter_neg (i:t) (r:t) : t bot =
+    meet i (neg r)
+
+  let filter_abs ((il,ih) as i:t) ((rl,rh) as r:t) : t bot =
+    if R.sign il >= 0 then meet i r
+    else if R.sign ih <= 0 then meet i (neg r)
+    else meet i (R.neg rh, rh)
+
+  (* r = i1+i2 => i1 = r-i2 /\ i2 = r-i1 *)
+  let filter_add (i1:t) (i2:t) (r:t) : (t*t) bot =
+    merge_bot2 (meet i1 (sub r i2)) (meet i2 (sub r i1))
+
+  (* r = i1-i2 => i1 = i2+r /\ i2 = i1-r *)
+  let filter_sub (i1:t) (i2:t) (r:t) : (t*t) bot =
+    merge_bot2 (meet i1 (add i2 r)) (meet i2 (sub i1 r))
+
+  (* r = i1*i2 => (i1 = r/i2 \/ i2=r=0) /\ (i2 = r/i1 \/ i1=r=0) *)
+  let filter_mul (i1:t) (i2:t) (r:t) : (t*t) bot =
+    merge_bot2
+      (if contains r 0 && contains i2 0 then Nb i1
+      else match fst (div r i2) with Bot -> Bot | Nb x -> meet i1 x)
+      (if contains r 0 && contains i1 0 then Nb i2
+      else match fst (div r i1) with Bot -> Bot | Nb x -> meet i2 x)
+
+  (* r = i1/i2 => i1 = i2*r /\ (i2 = i1/r \/ i1=r=0) *)
+  let filter_div (i1:t) (i2:t) (r:t) : (t*t) bot =
+    merge_bot2
+      (meet i1 (mul i2 r))
+      (if contains r 0 && contains i1 0 then Nb i2
+      else match fst (div i1 r) with Bot -> Bot | Nb x -> meet i2 x)
+
+  let filter_sqrt i1 i2 = failwith "No sqrt on integers"
+
+  let filter_pow i1 i2 = failwith "No power on integers"
+  let filter_root (i1:t) (i2:t) = failwith "No interval root on integers"
+
+  let filter_cos (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_sin (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_tan (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_cot (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_acos (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_asin (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_atan (i1:t) (i2:t) = failwith "No interval trigo on integers"
+  let filter_acot (i1:t) (i2:t) = failwith "No interval trigo on integers"
+
+  let filter_ln (i1:t) (i2:t) = failwith "No interval ln on integers"
+  let filter_log (i1:t) (i2:t) = failwith "No interval log on integers"
+  let filter_exp (i1:t) (i2:t) = failwith "No interval exp on integers"
+
+  (* r = min (i1, i2) *)
+  let filter_min (l1, u1) (l2, u2) (lr, ur) =
+    merge_bot2 (check_bot ((R.max l1 lr), (R.max u1 ur))) (check_bot ((R.max l2 lr), (R.max u2 ur)))
+
+  (* r = max (i1, i2) *)
+  let filter_max (l1, u1) (l2, u2) (lr, ur) =
+    merge_bot2 (check_bot ((R.min l1 lr), (R.min u1 ur))) (check_bot ((R.min l2 lr), (R.min u2 ur)))
+
+
+
+
+end

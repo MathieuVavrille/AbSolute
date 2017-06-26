@@ -21,7 +21,7 @@ OCAMLOPTLIBS := $(LIBS:%=%.cmxa) $(CCLIB)
 # directories to include
 OCAMLINC  := -I $(ZARITHDIR) -I $(APRONDIR) -I $(GMPDIR) \
              -I src -I src/lib -I src/domains -I src/frontend -I src/print \
-             -I src/solver
+             -I src/solver -I src/lib/rationals
 
 # targets
 TARGETS = solver.opt
@@ -48,9 +48,14 @@ MLFILES = \
 	src/lib/tconsext.ml \
 	src/lib/abstractext.ml \
   src/lib/constant.ml \
-  src/lib/apron_utils.ml \
-  src/lib/bot.ml \
   src/lib/mapext.ml \
+  src/lib/bot.ml \
+  src/lib/rationals/datatypes.ml \
+  src/lib/rationals/int.ml \
+  src/lib/rationals/float.ml \
+  src/lib/rationals/intinf.ml \
+  src/lib/rationals/rat.ml \
+  src/lib/apron_utils.ml \
   src/lib/bound_sig.ml \
   src/lib/bound_mpqf.ml \
   src/lib/bound_float.ml \

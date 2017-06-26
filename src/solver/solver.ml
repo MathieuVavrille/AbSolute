@@ -9,12 +9,12 @@ module Solve(Abs : AbstractCP) = struct
 
   let explore (abs:Abs.t) (constrs:Csp.constrs) =
     let open Res in
-    let rec aux abs cstrs res depth =
+    let rec aux abs cstrs res depth = print_string "AAAAAAAAA\n"; print_newline ();
       match consistency abs cstrs with
       | Empty -> res
       | Full abs' -> add_s res abs'
       | Maybe(a,cstrs) when stop res a || Abs.is_small a -> add_u res a
-      | Maybe(abs',cstrs) -> 
+      | Maybe(abs',cstrs) ->
          if !Constant.pruning && depth < !Constant.pruning_iter then
            let ls,lu = prune abs' cstrs in
            let res = List.fold_left (fun r x -> add_s r x) res ls in

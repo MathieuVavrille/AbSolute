@@ -60,6 +60,8 @@ module Cartesian_int = struct
   let delete (abs:t) (var:string) (value:int) =
     Env.add var (delete_from_list (find abs var) value) abs
 
+  let is_singleton abs = Env.for_all (fun k v -> List.length v = 1) abs
+
   let rec value_expr e vars = match e with
     | Unary(op, e1) -> (match op with
       | NEG -> -value_expr e1 vars
@@ -89,6 +91,12 @@ module Cartesian_int = struct
     | And(e1, e2) -> is_satisfied e1 vars && is_satisfied e2 vars
     | Or(e1, e2) -> is_satisfied e1 vars || is_satisfied e2 vars
     | Not(e1) -> not (is_satisfied e1 vars)
+    (* A better algorithme will be used for alldiff constraint *)
+    | Alldif(l) -> let rec aux l varl = match varl with
+      | [] -> true
+      | x::q when List.mem (Env.find x vars) l -> false
+      | x::q -> aux (Env.find x vars::l) q
+		   in aux [] l
 
   let print_support s = 
        Env.iter (fun k data ->
@@ -160,12 +168,12 @@ module Cartesian_int = struct
     | (best, nom) -> List.map (fun value ->
       Env.add nom [value] abs) (Env.find nom abs)
 
+       
 
-  (* Encore des bugs... *)
   let rec backtrack prog abs =
     let new_abs = full_ac prog abs in
     match split new_abs with
-    | [] -> print_string "Une solution\n"; print abs; print_newline ()
+    | [] -> if is_singleton new_abs then (print_string "Une solution\n"; print new_abs; print_newline ())
     | l -> List.iter (fun dom_a -> backtrack prog dom_a) l
     
 end
@@ -174,30 +182,18 @@ let c1 = Cmp(GEQ, Var("y"), Binary(SUB, Binary(MUL, Cst(2.0), Var("x")), Cst(2.0
 
 let c2 = Cmp(LEQ, Binary(MUL, Cst(2.0), Var("y")), Binary(SUB, Cst(6.0), Var("x")))
 
-let d1 = Cmp(GEQ, Binary(ADD, Var("x"), Var("y")), Cst(7.0))
-
-let d2 = Cmp(LEQ, Binary(ADD, Var("x"), Var("y")), Cst(1.0))
-
-let d3 = Cmp(GEQ, Binary(SUB, Var("x"), Var("y")), Cst(-3.0))
-
-let d4 = Cmp(LEQ, Binary(SUB, Var("x"), Var("y")), Cst(3.0))
-
+let d1 = Alldif(["1";"2";"3"])
+  
 let prog = empty
-let prog = {prog with init= [(INT, "x", Finite(0.0, 4.0)); (INT, "y", Finite(0.0,4.0))]}
-let prog = {prog with constraints = [c1;c2]}
+let prog = {prog with init= [(INT, "1", Finite(1.0, 4.0)); (INT, "2", Finite(1.0,4.0)); (INT, "3", Finite(1.0,4.0))]}(*; (INT, "4", Finite(1.0,4.0))]}*)
+let prog = {prog with constraints = [d1]}
 
 let abs = Cartesian_int.empty
-let abs = Cartesian_int.add_var_bounds abs "x" (0,4)
-let abs = Cartesian_int.add_var_bounds abs "y" (0,4)
+let abs = Cartesian_int.add_var_bounds abs "1" (1,3)
+let abs = Cartesian_int.add_var_bounds abs "2" (1,3)
+let abs = Cartesian_int.add_var_bounds abs "3" (1,3)
+(*let abs = Cartesian_int.add_var_bounds abs "4" (1,4)*)
 
 let abs = Cartesian_int.backtrack prog abs
-  
-
-let ins = Env.empty
-let ins = Env.add "x" 1 ins
-let ins = Env.add "y" 4 ins
-
-  let _ = print_string "\nTEST\n\n"
-let _ = if Cartesian_int.is_satisfied c1 ins then print_string "true" else print_string "false"
 
 let _ = print_newline()

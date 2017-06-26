@@ -46,7 +46,7 @@ module MBox      = GoM (Abstract_box.BoxF)(Box_drawer)
 module SBoxStrict = GoS (Abstract_box.BoxStrict)(Realbox_drawer)
 module MBoxStrict = GoM (Abstract_box.BoxStrict)(Realbox_drawer)
 
-module SBoxInt = GoI(Abstract_box.BoxI)
+module SBoxInt = GoI(Abstract_box.BoxIRat)
 
 (* apron domain based instances *)
 module SBoxCP    = GoS (ADCP.BoxCP)(Apron_drawer.BoxDrawer)

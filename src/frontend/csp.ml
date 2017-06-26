@@ -24,6 +24,7 @@ type expr =
 
 (* boolean expressions *)
 type bexpr =
+  | Alldif of var list
   | Cmp of cmpop * expr * expr
   | And of bexpr * bexpr
   | Or of bexpr * bexpr
@@ -82,6 +83,7 @@ let rec iter_constr f_expr f_constr = function
   | And (b1,b2) as constr -> f_constr constr; iter_constr f_expr f_constr b1; iter_constr f_expr f_constr b2
   | Or  (b1,b2) as constr -> f_constr constr; iter_constr f_expr f_constr b1; iter_constr f_expr f_constr b2
   | Not b as constr -> f_constr constr; iter_constr f_expr f_constr b
+  | _ -> ()
 
 (* power unrolling on exprs *)
 let rec power_unrolling expr : expr =
@@ -104,6 +106,7 @@ let rec power_unrolling_bexpr bexpr : bexpr =
   | And (b1,b2) -> And (power_unrolling_bexpr b1, power_unrolling_bexpr b2)
   | Or  (b1,b2) -> Or (power_unrolling_bexpr b1, power_unrolling_bexpr b2)
   | Not b -> Not (power_unrolling_bexpr b)
+  | constr -> constr
 
 (* cmp operator negation *)
 let neg = function
@@ -120,6 +123,7 @@ let rec neg_bexpr = function
   | And (b1,b2) -> Or (neg_bexpr b1, neg_bexpr b2)
   | Or (b1,b2) -> And (neg_bexpr b1, neg_bexpr b2)
   | Not b -> b
+  | Alldif l -> Not(Alldif l)
 
 let rec variables_of_expr e l = match e with
   | Unary(op, e1) -> variables_of_expr e1 l
@@ -133,6 +137,7 @@ let rec variables_of_c c l = match c with
   | Cmp(_, e1, e2) -> variables_of_expr e1 (variables_of_expr e2 l)
   | And(e1, e2) | Or(e1, e2) -> variables_of_c e1 (variables_of_c e2 l)
   | Not(e1) -> variables_of_c e1 l
+  | Alldif l -> l
 
 
 (*************************************************************)
@@ -163,6 +168,47 @@ let rec is_cons_linear = function
   | And (b1,b2) -> is_cons_linear b1 && is_cons_linear b2
   | Or (b1,b2) -> is_cons_linear b1 && is_cons_linear b2
   | Not b -> is_cons_linear b
+  | Alldif l -> false
+
+
+
+(*************************************************************)
+(*                   Constraints conversion                  *)
+(*************************************************************)
+
+
+(* Put the linear constraint to the form 0 <= a1X1 + ... + anXn *)
+(*let to_good_form c =
+  let rec add_to_right coeff name expr = match expr with
+    | Binary(MUL, Cst(i), Var(v)) when v = name -> Binary(MUL, Cst(i -. coeff), Var(v))
+    | Binary(MUL, _, _) -> Binary( ADD, expr, Binary(MUL, Cst(-. coeff), Var(name)))
+    | Binary(ADD, Binary(MUL, Cst(i), Var(v)), a) when v = name -> Binary(ADD, Binary(MUL, Cst(i -. coeff), Var(v)), a)
+    | Binary(ADD, a, b) -> Binary(ADD, a, add_to_right coeff name b)
+    | _ -> failwith "Shouldn't happen, if happens then one of the previous functions are not correct"
+  in
+  let rec add_to_left coeff name expr = 
+  | Binary(MUL, Cst(i), Var(v)) when v = name -> Binary(MUL, Cst(i +. coeff), Var(v))
+  | Binary(MUL, _, _) -> Binary( ADD, expr, Binary(MUL, Cst(coeff), Var(name)))
+  | Binary(ADD, Binary(MUL, Cst(i), Var(v)), a) when v = name -> Binary(ADD, Binary(MUL, Cst(i +. coeff), Var(v)), a)
+  | Binary(ADD, a, b) -> Binary(ADD, a, add_to_right coeff name b)
+  | _ -> failwith "Shouldn't happen, if happens then one of the previous functions are not correct"
+  in
+  let rec split *)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     
 
 (*************************************************************)
 (*                    PRINTING UTILITIES                     *)
@@ -215,6 +261,11 @@ let print_dom fmt = function
   | Top -> Format.fprintf fmt "[-oo; 00]"
   | Enumerated l -> Format.fprintf fmt "Un ensemble de valeurs" (*TODO*)
 
+let rec print_list fmt = function
+  | [] -> ()
+  | [x] -> Format.fprintf fmt "%s" x
+  | x::q -> Format.fprintf fmt "%s, %a" x print_list q
+     
 let print_assign fmt (a,b,c) =
   Format.fprintf fmt "%a %a=%a" print_typ a print_var b print_dom c
 
@@ -236,6 +287,7 @@ let rec print_bexpr fmt = function
   | Or  (b1,b2) ->
     Format.fprintf fmt "%a || %a" print_bexpr b1 print_bexpr b2
   | Not b -> Format.fprintf fmt "not %a" print_bexpr b
+  | Alldif l -> Format.fprintf fmt "all_different %a" print_list l
 
 let print fmt prog =
   let rec aux f = function

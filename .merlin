@@ -11,3 +11,6 @@ S src/print
 B src/print
 S src
 B src
+S src/lib/rationals
+B src/lib/rationals
+PKG zarith

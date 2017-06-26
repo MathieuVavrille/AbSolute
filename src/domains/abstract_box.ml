@@ -378,3 +378,4 @@ end
 module BoxF = Box(Itv.ItvF)
 module BoxStrict = Box(Newitv.Test)
 module BoxI = Box(Itv.ItvI)
+module BoxIRat = Box(Itv.ItvRat)

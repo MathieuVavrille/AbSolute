@@ -15,6 +15,7 @@ let _ =
       "init",           TOK_INIT;
       "objective", 	TOK_OBJ;
       "constraints",    TOK_CONSTR;
+      "all_different",	TOK_ALLDIF;
       "sqrt",           TOK_SQRT;
       "cos",            TOK_COS;
       "sin",            TOK_SIN;

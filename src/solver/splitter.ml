@@ -14,6 +14,7 @@ module Boolean (Abs:AbstractCP) = struct
       | _ -> raise Bot.Bot_found)
     | Not b -> filter value (neg_bexpr b)
     | Cmp (binop,e1,e2) -> Abs.filter value (e1,binop,e2)
+    | Alldif l -> failwith "all_dif not defined"
 
   let rec filterl (value:Abs.t) = let open Csp in function
     | And (b1,b2) -> filterl (filterl value b2) b1
@@ -26,6 +27,7 @@ module Boolean (Abs:AbstractCP) = struct
       | _ -> raise Bot.Bot_found)
     | Not b -> filterl value (neg_bexpr b)
     | Cmp (binop,e1,e2) -> Abs.filterl value (e1,binop,e2)
+    | Alldif l -> failwith "all_dif not defined"
 
 
   let rec sat_cons (a:Abs.t) (constr:Csp.bexpr) : bool =
@@ -60,7 +62,7 @@ module Make (Abs : AbstractCP) = struct
   let print_debug tab obj abs =
     if !Constant.debug then
       match obj with
-      | Some obj -> 
+      | Some obj ->
          let (inf, sup) = Abs.forward_eval abs obj in
          Format.printf "%sabs = %a\tobjective = (%f, %f)@." tab Abs.print abs inf sup
       | None -> Format.printf "%sabs = %a@." tab Abs.print abs
@@ -81,13 +83,13 @@ module Make (Abs : AbstractCP) = struct
 	| _ ->  if minimize_test objv abs' then
                   (print_debug "\t*******=> sure:" objv abs'; Full abs')
                 else (
-                  print_debug "\t=> " objv abs'; 
-                  if !Constant.iter then
+                  print_debug "\t=> " objv abs';
+                  if !Constant.iter then (print_string ("Volume = "^string_of_float (Abs.volume abs));
                     let ratio = (Abs.volume abs')/.(Abs.volume abs) in
                     if ratio > 0.9 || abs = abs' then
                       Maybe(abs', unsat)
                     else
-                      consistency abs' unsat
+                      consistency abs' unsat)
                   else
                     Maybe(abs', unsat))
     with Bot.Bot_found -> if !Constant.debug then Format.printf "\t=> bot\n"; Empty

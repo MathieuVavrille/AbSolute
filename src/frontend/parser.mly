@@ -53,6 +53,7 @@ open Csp
 %token TOK_DRAW
 %token TOK_MINF
 %token TOK_INF
+%token TOK_ALLDIF
 
 %token <string> TOK_id
 %token <float> TOK_const
@@ -145,12 +146,16 @@ const:
   | TOK_MINUS TOK_const {(-.$2)}
 
 bexpr:
-  | expr cmp expr                       {Cmp ($2, $1, $3)}
-  | bexpr TOK_OR bexpr                  {Or ($1,$3)}
-  | bexpr TOK_AND bexpr                 {And ($1,$3)}
-  | TOK_NOT bexpr                       {Not ($2)}
-  | TOK_LPAREN bexpr TOK_RPAREN         { $2 }
+  | expr cmp expr                       		{Cmp ($2, $1, $3)}
+  | bexpr TOK_OR bexpr                  		{Or ($1,$3)}
+  | bexpr TOK_AND bexpr                 		{And ($1,$3)}
+  | TOK_NOT bexpr                       		{Not ($2)}
+  | TOK_LPAREN bexpr TOK_RPAREN         		{ $2 }
+  | TOK_ALLDIF TOK_LPAREN var_list TOK_RPAREN 	{Alldif($3)}
 
+var_list:
+  | TOK_id						{ [$1] }
+  | TOK_id TOK_COMMA var_list	{$1::$3}
 
 expr:
   | TOK_LPAREN expr TOK_RPAREN          { $2 }
