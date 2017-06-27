@@ -151,7 +151,7 @@ module MAKE(AP:ADomain) = struct
 
   let empty = A.top man (Environment.make [||] [||])
 
-  let add_var abs (typ,v) =
+  let add_var abs (typ,v, dom) =
     let e = A.env abs in
     let ints,reals = if typ = INT then [|Var.of_string v|],[||] else [||],[|Var.of_string v|] in
     let env = Environment.add e ints reals in

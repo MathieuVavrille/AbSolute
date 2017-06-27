@@ -1,32 +1,11 @@
-open Csp
-
 module Env = Map.Make(struct type t=string let compare=compare end)
+module IntEnv = Map.Make(struct type t=int let compare=compare end)
 
-let rec power x n = if n = 0 then 1 else begin
-  if n > 0 then x*power x (n-1) else failwith "power of non positive value" end
+let go () = ()
 
-module Prog_int = struct
-  type t = prog * bexpr Env.t
-
-  let create prog =
-    let res = List.fold_left (fun acc var ->
-      Env.add var [] acc
-    ) Env.empty (get_vars prog)
-    in (prog, List.fold_left (fun acc constr ->
-      List.fold_left (fun acc2 var ->
-	Env.add var (constr::(Env.find var acc2)) acc2
-      ) acc (variables_of_c constr [])
-    ) res prog.constraints)
-    
-  let list_constraints_of_var (prog, constraints_of_var) var =
-    Env.find var constraints_of_var
-    
-end
-    
-module Cartesian_int = struct
-  type domain = int list  
-  module IntEnv = Map.Make(struct type t=int let compare=compare end)
-  type t = domain Env.t
+(*module Cartesian_int = struct
+  type domain_simple = int list
+  type t = domain_simple Env.t
 
   let empty : t = Env.empty
 
@@ -47,7 +26,7 @@ module Cartesian_int = struct
     print_string ("Variable "^k^":\n");
     List.iter (fun v -> print_int v; print_string ", ") d;
     print_newline ()) abs
-    
+
   (*delete from the list but keeps the order*)
   let delete_from_list l x =
     let rec aux acc l = match l with
@@ -56,7 +35,7 @@ module Cartesian_int = struct
       | v::q when v < x -> aux (v::acc) q
       | _ -> List.rev_append acc l
     in aux [] l
-      
+
   let delete (abs:t) (var:string) (value:int) =
     Env.add var (delete_from_list (find abs var) value) abs
 
@@ -65,20 +44,18 @@ module Cartesian_int = struct
   let rec value_expr e vars = match e with
     | Unary(op, e1) -> (match op with
       | NEG -> -value_expr e1 vars
-      | ABS -> abs (value_expr e1 vars)
-      | _ -> failwith "unary operation over floats not implemented")
+      | ABS -> abs (value_expr e1 vars))
     | Binary(op, e1, e2) -> let v1, v2 = value_expr e1 vars, value_expr e2 vars in (match op with
       | ADD -> v1 + v2
       | SUB -> v1 - v2
       | MUL -> v1 * v2
       | DIV -> v1 / v2
       | POW -> power v1 v2
-      | NROOT -> failwith "nroot not implemented"
       | MIN -> min v1 v2
       | MAX -> max v1 v2)
     | Var(v) -> Env.find v vars
     | Cst(i) -> int_of_float i
-      
+
   (* sees if the constraint is satisfied *)
   let rec is_satisfied c vars = match c with
     | Cmp(cmp, e1, e2) -> (match cmp with
@@ -98,7 +75,7 @@ module Cartesian_int = struct
       | x::q -> aux (Env.find x vars::l) q
 		   in aux [] l
 
-  let print_support s = 
+  let print_support s =
        Env.iter (fun k data ->
 	 IntEnv.iter (fun i  valeur ->
 	   print_string ("\nSUPPORT: "^k^" val "^string_of_int i^" verite "^(if valeur then "true" else "false"))
@@ -106,7 +83,7 @@ module Cartesian_int = struct
        ) s
 
   let print_instance ins = Env.iter (fun k d -> print_string ("\nInstance "^k^" value "^string_of_int d)) ins
-	 
+
   (* Consistance d'arc sur une contrainte, pour l'instant on n'est pas intelligent *)
   let ac (abs:t) c =
     (* Pour savoir quelles valeurs ont des supports *)
@@ -115,7 +92,7 @@ module Cartesian_int = struct
 	IntEnv.add value false acc2) IntEnv.empty (Env.find var abs) in
       Env.add var ajout acc
     ) Env.empty (variables_of_c c []) in
-    
+
     (* auxilliary function to search for all the solutions of the constraint, ins is the instanciation of the variables *)
     let rec aux l sup ins = match l with
       (* Case where all the variables are instanciated: if the constraint is satisfied, we check in supported that there is a support *)
@@ -130,7 +107,7 @@ module Cartesian_int = struct
       | (k, dom)::q -> List.fold_left (fun acc value ->
 	aux q acc (Env.add k value ins)
       ) sup dom
-	 
+
     in let new_supports = aux (Env.bindings abs) supported Env.empty in
        List.fold_left (fun acc (v, values) ->
 	 List.fold_left (fun acc2 (valeur, present) ->
@@ -156,7 +133,7 @@ module Cartesian_int = struct
 		    if c <> constr then add_to_list acc2 c else acc2
 		  ) acc (Env.find var constr_of_var)
 		) q to_delete in
-		propagate new_list new_abs 
+		propagate new_list new_abs
     in propagate prog.constraints abs
 
   let best_var abs = Env.fold (fun k l (best, nom) ->
@@ -168,32 +145,41 @@ module Cartesian_int = struct
     | (best, nom) -> List.map (fun value ->
       Env.add nom [value] abs) (Env.find nom abs)
 
-       
+
 
   let rec backtrack prog abs =
     let new_abs = full_ac prog abs in
     match split new_abs with
     | [] -> if is_singleton new_abs then (print_string "Une solution\n"; print new_abs; print_newline ())
     | l -> List.iter (fun dom_a -> backtrack prog dom_a) l
-    
-end
 
-let c1 = Cmp(GEQ, Var("y"), Binary(SUB, Binary(MUL, Cst(2.0), Var("x")), Cst(2.0)))
+  end *)
 
-let c2 = Cmp(LEQ, Binary(MUL, Cst(2.0), Var("y")), Binary(SUB, Cst(6.0), Var("x")))
+let anonymous_arg = Constant.set_prob
 
-let d1 = Alldif(["1";"2";"3"])
-  
-let prog = empty
-let prog = {prog with init= [(INT, "1", Finite(1.0, 4.0)); (INT, "2", Finite(1.0,4.0)); (INT, "3", Finite(1.0,4.0))]}(*; (INT, "4", Finite(1.0,4.0))]}*)
-let prog = {prog with constraints = [d1]}
+let parse_args () = Arg.parse [("-trace", Constant.(Arg.Set trace), "Prints the solutions on standard output")] anonymous_arg ""
 
-let abs = Cartesian_int.empty
-let abs = Cartesian_int.add_var_bounds abs "1" (1,3)
-let abs = Cartesian_int.add_var_bounds abs "2" (1,3)
-let abs = Cartesian_int.add_var_bounds abs "3" (1,3)
+(*let go () =
+  let open Constant in
+  parse_args ();
+  let prob = File_parser.parse !problem in
+  if !trace then Format.printf "%a" Csp.print prob;
+  let c1 = Cmp(GEQ, Var("y"), Binary(SUB, Binary(MUL, Cst(2.0), Var("x")), Cst(2.0))) in
+
+  let c2 = Cmp(LEQ, Binary(MUL, Cst(2.0), Var("y")), Binary(SUB, Cst(6.0), Var("x"))) in
+
+  let d1 = Alldif(["1";"2";"3"]) in
+
+  let prog = empty in
+  let prog = {prog with init= [(INT, "1", Finite(1.0, 4.0)); (INT, "2", Finite(1.0,4.0)); (INT, "3", Finite(1.0,4.0))]}(*; (INT, "4", Finite(1.0,4.0))]}*) in
+  let prog = {prog with constraints = [d1]} in
+
+  let abs = Cartesian_int.empty in
+  let abs = Cartesian_int.add_var_bounds abs "1" (1,3) in
+  let abs = Cartesian_int.add_var_bounds abs "2" (1,3) in
+  let abs = Cartesian_int.add_var_bounds abs "3" (1,3) in
 (*let abs = Cartesian_int.add_var_bounds abs "4" (1,4)*)
 
-let abs = Cartesian_int.backtrack prog abs
+  let abs = Cartesian_int.backtrack prog abs in
 
-let _ = print_newline()
+  print_newline()*)

@@ -1,6 +1,9 @@
 init{
-  int x = [1; 4];
-  int y = [1; 4];
+  int x = [-20;20];
+  int y = [-20; 20];
 }
+
 constraints{
+  y*x + 0.5 * x*x + y <= 30;
+  y*y + x*x >= 100;
 }

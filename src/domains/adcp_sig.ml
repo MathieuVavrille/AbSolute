@@ -25,7 +25,7 @@ module type AbstractCP = sig
   val empty : t
 
   (* adds an unconstrained variable to the environnement *)
-  val add_var : t -> typ * var -> t (* * dom -> t*)
+  val add_var : t -> typ * var * dom -> t (* * dom -> t*)
 
   (*** PREDICATES ***)
 

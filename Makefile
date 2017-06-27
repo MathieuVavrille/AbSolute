@@ -50,6 +50,7 @@ MLFILES = \
   src/lib/constant.ml \
   src/lib/mapext.ml \
   src/lib/bot.ml \
+  src/frontend/cspplus.ml \
   src/lib/rationals/datatypes.ml \
   src/lib/rationals/int.ml \
   src/lib/rationals/float.ml \
@@ -60,6 +61,7 @@ MLFILES = \
   src/lib/bound_mpqf.ml \
   src/lib/bound_float.ml \
   src/lib/bound_int.ml \
+  src/lib/set_int.ml \
   src/lib/itv_sig.ml \
   src/lib/itv.ml \
 	src/lib/newitv.ml \
@@ -77,9 +79,11 @@ MLFILES = \
 	src/print/latex.ml \
   src/print/drawer_sig.ml \
 	src/print/box_drawer.ml \
+	src/print/int_drawer.ml \
   src/print/realbox_drawer.ml \
 	src/print/apron_drawer.ml \
   src/print/out.ml \
+  src/frontend/cartesian_product.ml \
 	src/main.ml
 
 CFILES = \

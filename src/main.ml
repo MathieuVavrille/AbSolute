@@ -26,13 +26,15 @@ module GoM (Abs:Adcp_sig.AbstractCP)(Dr:Drawer with type t = Abs.t) = struct
     Print.out_min prob res
 end
 
-module GoI (Abs:Adcp_sig.AbstractCP) = struct
+module GoI (Abs:Adcp_sig.AbstractCP) (Dr:Drawer with type t = Abs.t) = struct
   module Sol = Solver.Solve(Abs)
+  module Print = Out.Make(Dr)
   let go prob =
     let res = Sol.solving prob in
-    List.iter (fun a -> Format.printf "\nabs = %a\tvolume = %f@." Abs.print a (Abs.volume a)) res.Result.sure
+    List.iter (fun a -> Format.printf "\nabs = %a\tvolume = %f@." Abs.print a (Abs.volume a)) res.Result.sure;
+    Print.out_min prob res
 end
-  
+
 (************************)
 (* THE SOLVER INSTANCES *)
 (************************)
@@ -46,7 +48,7 @@ module MBox      = GoM (Abstract_box.BoxF)(Box_drawer)
 module SBoxStrict = GoS (Abstract_box.BoxStrict)(Realbox_drawer)
 module MBoxStrict = GoM (Abstract_box.BoxStrict)(Realbox_drawer)
 
-module SBoxInt = GoI(Abstract_box.BoxIRat)
+module SBoxInt = GoI(Abstract_box.BoxIRat)(Int_drawer)
 
 (* apron domain based instances *)
 module SBoxCP    = GoS (ADCP.BoxCP)(Apron_drawer.BoxDrawer)
@@ -163,4 +165,4 @@ let test_mod_parser() =
 
 let _ =
   (* test_mod_parser () *)
-  go()
+  Cartesian_product.go()

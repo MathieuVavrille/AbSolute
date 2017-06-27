@@ -53,14 +53,14 @@ module Box (I:ITV) = struct
     (B.to_float_down l),(B.to_float_up h)
 
   let to_expr abs =
-    Env.fold (fun v x lexp -> 
+    Env.fold (fun v x lexp ->
                let ((cl, l), (ch, h)) = I.to_expr x in
                List.append lexp [(Csp.Var(v), cl, l);
                                  (Csp.Var(v), ch, h)]
              ) abs []
 
   let to_expr abs vars : (Csp.expr * Csp.cmpop * Csp.expr) list =
-    Env.fold (fun v x lexp -> 
+    Env.fold (fun v x lexp ->
                if List.exists (fun vn -> String.equal v vn) vars then
                  let ((cl, l), (ch, h)) = I.to_expr x in
                  List.append lexp [(Csp.Var(v), cl, l);
@@ -336,11 +336,13 @@ let split_along (a:t) (v:var) : t list =
 
   let empty : t = Env.empty
 
-  let add_var abs (typ,var) : t = (*,dom) : t =*)
-    (*let interval = match dom with
-      | Finite (l, h) -> I.of_floats l h
-      | _ -> failwith "can't handle non-finite domains"
-  in*) Env.add (if typ = INT then (var^"%") else var) I.top abs (*interval abs*)
+  let add_var abs (typ,var,dom) : t =
+    let itv =
+      match dom with
+      | Finite (l,u) -> I.of_floats l u
+      | _ -> failwith "can only handle finite domains"
+    in
+    Env.add (if typ = INT then (var^"%") else var) itv abs
 
   let is_enumerated a =
     Env.for_all (fun v i -> (is_integer v |> not) || I.is_singleton i) a
@@ -348,11 +350,11 @@ let split_along (a:t) (v:var) : t list =
   let forward_eval abs cons =
     let (_, bounds) = eval abs cons in
     I.to_float_range bounds
-   
+
 
   let rec is_applicable abs (e:expr) : bool =
     match e with
-    | Var v -> let (var, name) = try find v abs with 
+    | Var v -> let (var, name) = try find v abs with
                                    Not_found -> (I.zero, "")
                in
                let res = match name with
@@ -365,7 +367,7 @@ let split_along (a:t) (v:var) : t list =
     | Binary (_, e1, e2) -> (is_applicable abs e1) && (is_applicable abs e2)
 
   let lfilter (a:t) l : t =
-    let la = List.filter (fun (e1, op, e2) -> 
+    let la = List.filter (fun (e1, op, e2) ->
                            (is_applicable a e1) && (is_applicable a e2)) l in
     List.fold_left (fun a' e -> filter a' e) a la
 

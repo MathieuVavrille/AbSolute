@@ -41,6 +41,9 @@ module BoxCP =
     let vol = Array.fold_left (fun v itv -> Mpqf.mul v (diam_interval itv)) (Mpqf.of_int 1) tab in
     Mpqf.to_float vol
 
+
+  let add_var_int abs d = failwith "add_var_int de ADCP"
+
   end
 
 (**
@@ -196,6 +199,9 @@ module OctMinMinCP =
       split octad (linexpr1,linexpr2)
 
     let volume box = 0.
+
+    let add_var_int abs d = failwith "add_var_int de various ADCP"
+
   end
 
 (**
@@ -303,6 +309,9 @@ module OctMinMaxCP =
       split octad (get_expr (Polka.manager_alloc_strict()) poly)
 
     let volume box = 0.
+
+    let add_var_int abs d = failwith "add_var_int de various ADCP"
+
   end
 
 (**
@@ -336,6 +345,9 @@ module OctBoxCP =
       split octad (expr, expr')
 
     let volume box = 0.
+
+    let add_var_int abs d = failwith "add_var_int de various ADCP"
+
   end
 
 (**
@@ -351,5 +363,8 @@ module PolyCP = struct
 
   let split poly = split poly (get_expr (Polka.manager_alloc_strict()) poly)
 
-    let volume box = 0.
+  let volume box = 0.
+
+  let add_var_int abs d = failwith "add_var_int de various ADCP"
+
 end

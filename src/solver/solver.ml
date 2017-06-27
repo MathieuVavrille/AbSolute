@@ -9,7 +9,7 @@ module Solve(Abs : AbstractCP) = struct
 
   let explore (abs:Abs.t) (constrs:Csp.constrs) =
     let open Res in
-    let rec aux abs cstrs res depth = print_string "AAAAAAAAA\n"; print_newline ();
+    let rec aux abs cstrs res depth =
       match consistency abs cstrs with
       | Empty -> res
       | Full abs' -> add_s res abs'
