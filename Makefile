@@ -83,7 +83,7 @@ MLFILES = \
   src/print/realbox_drawer.ml \
 	src/print/apron_drawer.ml \
   src/print/out.ml \
-  src/frontend/cartesian_product.ml \
+  src/domains/cartesian_product.ml \
 	src/main.ml
 
 CFILES = \
