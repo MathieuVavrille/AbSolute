@@ -54,6 +54,8 @@ type bexpr =
   | Or of bexpr * bexpr
   | Not of bexpr
 
+type domain_to_add = Finite of int * int | Enumerated of int list
+
 type domain = int * int * int list (* min, max, valeurs. Remplacer int list par (int*int) list, ou bool Array?*)
 
 type compteur = int IntEnv.t array (* On compte le nombre de supports *)
@@ -115,6 +117,11 @@ let rec transform_constr constr bij = match constr with
   | Csp.Or(c1, c2) -> Or(transform_constr c1 bij, transform_constr c2 bij)
   | Csp.Not(c1) -> Not(transform_constr c1 bij)
 
+let to_dom_int dom = match dom with
+  | Csp.Finite(a, b) -> Finite(int_of_float a, int_of_float b)
+  | Csp.Enumerated(l) -> Enumerated(List.map int_of_float l)
+  | _ -> failwith "We don't deal with infinite domains"
+
 (* Creation of the program++ *)
 (* --------- *)
 let compteur =
@@ -138,4 +145,7 @@ let create prog =
       list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
     ) vars; new_constr
   ) prog.Csp.constraints in
-  { constraints = constraints; presence = list_constr_of_var; bijection = int_to_vars, vars_to_int}
+  let vars_to_add = List.map (fun (_, v, d) ->
+    Env.find v vars_to_int, to_dom_int d
+  ) prog.Csp.init in
+  { constraints = constraints; presence = list_constr_of_var; bijection = int_to_vars, vars_to_int}, vars_to_add

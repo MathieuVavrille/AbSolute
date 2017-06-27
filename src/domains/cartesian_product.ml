@@ -1,9 +1,49 @@
 module Env = Map.Make(struct type t=string let compare=compare end)
 module IntEnv = Map.Make(struct type t=int let compare=compare end)
 
+
 let go () = ()
 
+module Cartesian_int = struct
+  module S = Set_int
 
+  (* Type mutable, les fonctions de modifications renvoient unit! *)
+  type t = S.t array
+
+  let empty = Array.make 0 S.empty
+
+  let create_from_list l =
+    let abs = Array.make (List.length l) S.empty in
+    List.iter (fun (var, dom) ->
+      match dom with
+      | Cspplus.Finite(mini, maxi) -> abs.(var) <- S.of_bounds mini maxi
+      | Cspplus.Enumerated(d) -> abs.(var) <- S.of_list d
+    ) l; abs
+
+  let string_of_list l =
+    let rec aux l = match l with
+      | [] -> ""
+      | [x] -> string_of_int x
+      | x::q -> string_of_int x^"; "^aux q
+    in "["^aux l^"] "
+
+  (* Simple printing function *)
+  let print abs i_to_v = print_string "Domaines: ";
+    Array.iteri (fun ind (_, _, l) ->
+      print_string (i_to_v.(ind)^"="^string_of_list l)
+    ) abs
+
+  let delete abs var value =
+    abs.(var) <- S.delete abs.(var) value
+
+  let is_inconsistent abs =
+    Array.exists (fun (_, _, l) -> l=[]) abs
+
+  let is_singleton abs v =
+    let (mini, maxi, l) = abs.(v) in
+    mini = maxi && l!=[]
+
+end
 
 
 (*module Cartesian_int = struct
@@ -161,6 +201,17 @@ let go () = ()
 let anonymous_arg = Constant.set_prob
 
 let parse_args () = Arg.parse [("-trace", Constant.(Arg.Set trace), "Prints the solutions on standard output")] anonymous_arg ""
+
+let go () =
+  let open Constant in
+  parse_args ();
+  let prob = File_parser.parse !problem in
+  if !trace then Format.printf "%a" Csp.print prob;
+  let probplus, to_add = Cspplus.create prob in
+  let abs = Cartesian_int.create_from_list to_add in
+  abs
+
+
 
 (*let go () =
   let open Constant in

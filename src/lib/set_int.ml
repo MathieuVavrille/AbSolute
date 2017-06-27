@@ -6,6 +6,8 @@
 
 type t = int * int * int list
 
+let empty : int * int * int list = 0, 0, []
+
 let find_min_old_lists l =
   List.fold_left (fun acc x ->
     if x < acc then x else acc) (List.hd l) l
@@ -15,11 +17,18 @@ let find_max_old_lists l =
     if x > acc then x else acc) (List.hd l) l
 
 
+
 (* Creates a domain from a list, if the list is empty, min and max are irrelevant *)
-let from_list l : t = match l with
+let of_list l : t = match l with
   | [] -> 0, 0, []
   | _ -> let new_l = List.sort compare l in
 	 List.hd new_l, find_max_old_lists l, new_l
+
+let of_bounds mini maxi =
+  let rec aux acc a b = match a = b with
+    | true -> a::acc
+    | false -> aux (b::acc) a (b-1)
+  in mini, maxi, aux [] mini maxi
 
 let min ((m, _, _):t) = m
 
