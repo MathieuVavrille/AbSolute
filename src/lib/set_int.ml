@@ -16,8 +16,6 @@ let find_max_old_lists l =
   List.fold_left (fun acc x ->
     if x > acc then x else acc) (List.hd l) l
 
-
-
 (* Creates a domain from a list, if the list is empty, min and max are irrelevant *)
 let of_list l : t = match l with
   | [] -> 0, 0, []
@@ -34,9 +32,10 @@ let min ((m, _, _):t) = m
 
 let max ((_, m, _):t) = m
 
-let delete_min (_, m, l) =
-  let new_l = List.tl l in
-  List.hd new_l, m, new_l
+let delete_min (_, m, l) = match l with
+  | [] -> failwith "No min of empty list"
+  | [x] -> 0, m, []
+  | x::y::q -> y, m, y::q
 
 let delete_max (mini, _, l) =
   let rec aux l = match l with
@@ -50,8 +49,21 @@ let delete_max (mini, _, l) =
 let delete ((mini, maxi, l) as l_plus) x = match mini = x, maxi = x with
   | true, _ -> delete_min l_plus
   | false, true -> delete_max l_plus
-  | false, false -> let rec aux l = match l with
-    | [] -> failwith "Value not found while deleting"
-    | y::q when x = y -> q
-    | y::q -> y::aux q
-		    in mini, maxi, aux l
+  | false, false ->
+     let rec aux l = match l with
+       | [] -> failwith ("Value "^string_of_int x^" not found while deleting")
+       | y::q when x = y -> q
+       | y::q -> y::aux q
+     in mini, maxi, aux l
+
+let is_empty (_, _, l) = l = []
+
+let of_singleton x = (x, x, [x])
+
+let is_singleton (mini, maxi, l) = (mini = maxi && l!=[])
+
+let length (mini, maxi, l) = List.length l
+
+let to_list (_, _, l) = l
+
+let _ = delete (2, 4, [2;3;4]) 2

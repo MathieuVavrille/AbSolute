@@ -1,8 +1,9 @@
 module Env = Map.Make(struct type t=string let compare=compare end)
 module IntEnv = Map.Make(struct type t=int let compare=compare end)
 
+open Cspplus
 
-let go () = ()
+type action = Nothing | Affect of int * int * int list | Newmin of var * int | Newmax of var * int
 
 module Cartesian_int = struct
   module S = Set_int
@@ -16,8 +17,8 @@ module Cartesian_int = struct
     let abs = Array.make (List.length l) S.empty in
     List.iter (fun (var, dom) ->
       match dom with
-      | Cspplus.Finite(mini, maxi) -> abs.(var) <- S.of_bounds mini maxi
-      | Cspplus.Enumerated(d) -> abs.(var) <- S.of_list d
+      | Finite(mini, maxi) -> abs.(var) <- S.of_bounds mini maxi
+      | Enumerated(d) -> abs.(var) <- S.of_list d
     ) l; abs
 
   let string_of_list l =
@@ -28,61 +29,51 @@ module Cartesian_int = struct
     in "["^aux l^"] "
 
   (* Simple printing function *)
-  let print abs i_to_v = print_string "Domaines: ";
+  let print abs prog = let i_to_v = fst prog.bijection in print_string "Domaine: ";
     Array.iteri (fun ind (_, _, l) ->
       print_string (i_to_v.(ind)^"="^string_of_list l)
-    ) abs
+    ) abs; print_newline ()
 
+  (*let print fmt (abs,prog) = let i_to_v = fst prog.bijection in
+    let print_list fmt l =
+      Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ";")
+	(fun fmt -> Format.fprintf fmt "%i") fmt l
+    in
+    Array.iteri (fun ind (_,_,l) ->
+      Format.fprintf fmt "%s=%a\n" i_to_v.(ind) print_list l
+    ) abs*)
+
+  let rec add_to_list x l equal = match l with
+    | [] -> [x]
+    | y::q when equal y x -> l
+    | y::q -> y::add_to_list x q equal
+
+  let rec concat_lists l1 l2 equal = match l1 with
+    | [] -> l2
+    | x::q -> concat_lists q (add_to_list x l2 equal) equal
+
+  let rec remove_from_list x l = match l with
+    | [] -> []
+    | y::q when y = x -> q
+    | y::q -> y::remove_from_list x q
+
+  let copy = Array.copy
+
+  (* true si le domaine devient inconsistent *)
   let delete abs var value =
-    abs.(var) <- S.delete abs.(var) value
+    abs.(var) <- S.delete abs.(var) value; S.is_empty abs.(var)
+
+  let enumerate_var abs var =
+    let (_, _, l) = abs.(var) in l
 
   let is_inconsistent abs =
     Array.exists (fun (_, _, l) -> l=[]) abs
 
-  let is_singleton abs v =
-    let (mini, maxi, l) = abs.(v) in
-    mini = maxi && l!=[]
+  let is_singleton_var abs v =
+    S.is_singleton abs.(v)
 
-end
-
-
-(*module Cartesian_int = struct
-  type domain_simple = int list
-  type t = domain_simple Env.t
-
-  let empty : t = Env.empty
-
-  let add_var_bounds (abs:t) (var:string) (l,h:int*int) =
-    let rec aux acc a b = match a = b with
-    | true -> a::acc
-    | false -> aux (b::acc) a (b-1)
-    in Env.add var (List.sort compare (aux [] l h)) abs
-
-  let add_var_enum (abs:t) (var:string) (dom:int list) =
-    Env.add var (List.sort compare dom) abs
-
-  let find (abs:t) (var:string) =
-    Env.find var abs
-
-  (* A really simple printing function *)
-  let print abs = Env.iter (fun k d ->
-    print_string ("Variable "^k^":\n");
-    List.iter (fun v -> print_int v; print_string ", ") d;
-    print_newline ()) abs
-
-  (*delete from the list but keeps the order*)
-  let delete_from_list l x =
-    let rec aux acc l = match l with
-      | [] -> acc
-      | v::q when v = x -> List.rev_append acc q
-      | v::q when v < x -> aux (v::acc) q
-      | _ -> List.rev_append acc l
-    in aux [] l
-
-  let delete (abs:t) (var:string) (value:int) =
-    Env.add var (delete_from_list (find abs var) value) abs
-
-  let is_singleton abs = Env.for_all (fun k v -> List.length v = 1) abs
+  let is_singleton abs =
+    Array.for_all S.is_singleton abs
 
   let rec value_expr e vars = match e with
     | Unary(op, e1) -> (match op with
@@ -96,107 +87,163 @@ end
       | POW -> power v1 v2
       | MIN -> min v1 v2
       | MAX -> max v1 v2)
-    | Var(v) -> Env.find v vars
-    | Cst(i) -> int_of_float i
+    | Var(v) -> vars.(v)
+    | Cst(i) -> i
 
   (* sees if the constraint is satisfied *)
   let rec is_satisfied c vars = match c with
     | Cmp(cmp, e1, e2) -> (match cmp with
-      | EQ -> value_expr e1 vars = value_expr e2 vars
-      | LEQ -> value_expr e1 vars <= value_expr e2 vars
-      | GEQ -> value_expr e1 vars >= value_expr e2 vars
-      | NEQ -> value_expr e1 vars <> value_expr e2 vars
-      | GT -> value_expr e1 vars > value_expr e2 vars
-      | LT -> value_expr e1 vars < value_expr e2 vars)
+      | Csp.EQ -> value_expr e1 vars = value_expr e2 vars
+      | Csp.LEQ -> value_expr e1 vars <= value_expr e2 vars
+      | Csp.GEQ -> value_expr e1 vars >= value_expr e2 vars
+      | Csp.NEQ -> value_expr e1 vars <> value_expr e2 vars
+      | Csp.GT -> value_expr e1 vars > value_expr e2 vars
+      | Csp.LT -> value_expr e1 vars < value_expr e2 vars)
     | And(e1, e2) -> is_satisfied e1 vars && is_satisfied e2 vars
     | Or(e1, e2) -> is_satisfied e1 vars || is_satisfied e2 vars
     | Not(e1) -> not (is_satisfied e1 vars)
     (* A better algorithme will be used for alldiff constraint *)
     | Alldif(l) -> let rec aux l varl = match varl with
       | [] -> true
-      | x::q when List.mem (Env.find x vars) l -> false
-      | x::q -> aux (Env.find x vars::l) q
+      | x::q when List.mem (vars.(x)) l -> false
+      | x::q -> aux (vars.(x)::l) q
 		   in aux [] l
 
-  let print_support s =
-       Env.iter (fun k data ->
-	 IntEnv.iter (fun i  valeur ->
-	   print_string ("\nSUPPORT: "^k^" val "^string_of_int i^" verite "^(if valeur then "true" else "false"))
-	 ) data
-       ) s
+  let print_env affiche env = print_string "{";
+    IntEnv.iter (fun i v ->
+      print_int i; print_string ":"; affiche v; print_string "|") env;
+    print_string "}"
 
-  let print_instance ins = Env.iter (fun k d -> print_string ("\nInstance "^k^" value "^string_of_int d)) ins
+  let print_ins affiche ins = print_string "[|";
+    Array.iteri (fun var i -> print_int var; print_string ":";affiche i;print_string ";") ins;
+    print_string "|]"
 
-  (* Consistance d'arc sur une contrainte, pour l'instant on n'est pas intelligent *)
-  let ac (abs:t) c =
-    (* Pour savoir quelles valeurs ont des supports *)
-    let supported = List.fold_left (fun acc var ->
-      let ajout = List.fold_left (fun acc2 value ->
-	IntEnv.add value false acc2) IntEnv.empty (Env.find var abs) in
-      Env.add var ajout acc
-    ) Env.empty (variables_of_c c []) in
+  let print_list affiche l = print_string "[";
+    List.iter (fun v -> affiche v; print_string ";") l;
+    print_string "]\n"
 
-    (* auxilliary function to search for all the solutions of the constraint, ins is the instanciation of the variables *)
-    let rec aux l sup ins = match l with
-      (* Case where all the variables are instanciated: if the constraint is satisfied, we check in supported that there is a support *)
-      | [] -> if is_satisfied c ins then begin
-	Env.fold (fun k d acc ->
-	  let support_var = Env.find k acc in
-	  Env.add k (IntEnv.add d true support_var) acc
-	) ins sup
+  let print_sup = print_ins (print_env (print_list (print_ins print_int)))
+
+  let print_comp = print_ins (print_env print_int)
+
+  let create_intenv values param =
+    List.fold_left (fun acc value ->
+      IntEnv.add value param acc) IntEnv.empty values
+
+  let ac abs (constr, var_list, qual) prog = (*print_string "ac\n";*)
+    match qual with
+    | Other(compt, sup) ->
+    (* Function to find all the values to delete *)
+    let find_non_supported () =
+      List.fold_left (fun acc var ->
+	IntEnv.fold (fun value nb_sup acc2 ->
+	  if nb_sup = 0 then (*print_string ("Non_supported "^string_of_int var^" "^string_of_int value^"\n");*)(var, value)::acc2 else (*(print_string ("Supported "^string_of_int var^" "^string_of_int value^" "^string_of_int nb_sup^"\n"); *)acc2
+	) compt.(var) acc
+      ) [] var_list
+    in if is_support_empty compt && is_support_empty sup then begin
+      let instanciation = Array.make (Array.length prog.presence) 0 in
+      List.iter (fun var ->
+	let value_list = S.to_list abs.(var) in
+	let list_env = create_intenv value_list [] in
+	let compt_env = create_intenv value_list 0 in
+	for i=0 to Array.length compt do
+	  sup.(var) <- list_env; compt.(var) <- compt_env
+	done) var_list;
+      (* The recursive function used to search in all the possible instanciations *)
+      let rec aux l = match l with
+	| [] -> if is_satisfied constr instanciation then begin (*print_string "Ins: "; print_ins print_int instanciation; print_newline ();*)
+	  List.iter (fun var ->
+	    let value = instanciation.(var) in
+	    let new_compteur = try IntEnv.find value compt.(var) + 1 with _ -> 1 in
+	    compt.(var) <- IntEnv.add value new_compteur compt.(var);
+	    let new_support = try IntEnv.find value sup.(var) with _ -> [] in
+	    sup.(var) <- IntEnv.add value (Array.copy instanciation::new_support) sup.(var)
+	  ) var_list
+	end
+	| x::q -> (*print_int x; print_newline ();*)
+	   let values = enumerate_var abs x in
+	   List.iter (fun value -> (*print_int x; print_string " "; print_int value;print_newline ();*)
+	     instanciation.(x) <- value; aux q
+	   ) values
+      in (*print_list print_int var_list;*)aux var_list;
+      find_non_supported ()
+    end
+      else find_non_supported ()
+
+
+  (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
+  let delete_from_constr var value ((constr, vars_list, qual) as c) = (*print_constr c;print_string ("dddelete_from_constr "^string_of_int var^" "^string_of_int value^"\n");*)match qual with
+    | Other(compt, sup) -> if not (is_support_empty compt && is_support_empty sup) then begin
+      let tuple_list = IntEnv.find value sup.(var) in
+       (*print_list tuple_list print_ins;*)
+       (* Dans toutes les listes de supports on supprime ceux à supprimer, et on décrémente les compteurs *)
+       List.fold_left (fun new_to_delete inst ->
+	 List.fold_left (fun to_delete d_var ->
+	   let d_value = inst.(d_var) in
+	   let d_sup = sup.(d_var) in
+	   sup.(d_var) <- IntEnv.add d_value (remove_from_list inst (IntEnv.find d_value d_sup)) d_sup;
+	   let d_compt = compt.(d_var) in
+	   let nb_sup = IntEnv.find d_value d_compt in
+	   compt.(d_var) <- IntEnv.add d_value (nb_sup - 1) d_compt;
+	   (*print_string ("Deleting "^string_of_int d_var^" "^string_of_int d_value^" "^string_of_int nb_sup^" "^string_of_int (List.length (IntEnv.find d_value sup.(d_var)))^"\n");*)
+	   match nb_sup with
+	   | 1 when d_var <> var-> (d_var, d_value)::to_delete
+	   | x when x < 1 -> (*print_string ("Compt:"^string_of_int d_var^" "^string_of_int d_value);*)failwith "Erreur lors de la suppression du support, compteur trop petit"
+	   | _ -> to_delete
+	 ) new_to_delete vars_list
+       ) [] tuple_list end else []
+
+  (* Makes the domain arc consistent, returns true if the domain is inconsistent *)
+  let full_ac abs prog action = (*print_string "fullac\n"; print abs prog;*)
+    let rec propagate_var l = match l with
+      | [] -> false
+      | (var, value)::q -> (*print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print abs prog;*)if delete abs var value then true else begin
+	let to_delete = List.fold_left (fun acc constr ->
+	  let new_delete = delete_from_constr var value constr in
+	  concat_lists new_delete acc (fun a b -> a = b)
+	) q prog.presence.(var) in
+	propagate_var to_delete
       end
-	else sup
-      (* Else, we have to instanciate the variables (like in a backtrack) *)
-      | (k, dom)::q -> List.fold_left (fun acc value ->
-	aux q acc (Env.add k value ins)
-      ) sup dom
-
-    in let new_supports = aux (Env.bindings abs) supported Env.empty in
-       List.fold_left (fun acc (v, values) ->
-	 List.fold_left (fun acc2 (valeur, present) ->
-	   if present then acc2 else (v, valeur, c)::acc2
-	 ) acc (IntEnv.bindings values)
-       ) [] (Env.bindings new_supports)
-
-  let full_ac prog abs =
-    let (_, constr_of_var) = Prog_int.create prog in
-    let rec add_to_list l c = match l with
-      | [] -> [c]
-      | x::q when x = c -> l
-      | x::q -> x::add_to_list q c in
+    in
     (* Fonction qui va parcourir les contraintes et les rendre consistantes *)
-    let rec propagate l abs = match l with
-      | [] -> abs
-      | c::q -> let to_delete = ac abs c in
-		let new_abs = List.fold_left (fun acc (var,value,_) ->
-		  delete acc var value
-		) abs to_delete in
-		let new_list = List.fold_left (fun acc (var,_,constr) ->
-		  List.fold_left (fun acc2 c ->
-		    if c <> constr then add_to_list acc2 c else acc2
-		  ) acc (Env.find var constr_of_var)
-		) q to_delete in
-		propagate new_list new_abs
-    in propagate prog.constraints abs
+    let rec propagate_constr l = (*print_string "Propagate_constr\n";*)match l with
+      | [] -> false
+      | c::q -> let to_delete = ac abs c prog in
+		propagate_var to_delete || propagate_constr q
+    in match action with
+    | Nothing -> (*print_string "Nothing ";print_int (List.length prog.constraints);*)propagate_constr prog.constraints (* impose the consistency on all constraints *)
+    | Affect(var, value, all_deleted) -> let useful_all_deleted = List.map (fun value -> (var, value)) all_deleted in
+       propagate_var useful_all_deleted (* search for the consistency only in the possibly modified constraints *)
+    | _ -> failwith "Split affect a value (currently, other forms of split are not implemented)"
 
-  let best_var abs = Env.fold (fun k l (best, nom) ->
-    if List.length l <> 1 && (List.length l < best || best = -1) then (List.length l, k) else (best, nom)
-  ) abs (-1, "")
+  (* find the variable with the smallest domain , assume the abstract domain is not a singleton *)
+  let variable_to_split abs =
+    let var_mini = ref 0 in
+    let mini = ref (S.length abs.(!var_mini)) in
+    Array.iteri (fun var dom ->
+      let new_mini = S.length dom in
+      if new_mini > 1 && (new_mini < !mini || !mini <= 1) then begin mini := new_mini; var_mini := var end
+    ) abs; !var_mini
 
-  let split abs = match best_var abs with
-    | (-1, "") -> []
-    | (best, nom) -> List.map (fun value ->
-      Env.add nom [value] abs) (Env.find nom abs)
+  let rec backtrack prog abs action =
+    if not (full_ac abs prog action) then begin
+    match is_singleton abs with
+    | true -> print_string "Resultat: "; print abs prog;(*Format.printf "%a\n" print (abs,prog); *)print_newline ()
+    | false -> (*List.iter (fun (_, _, Other(compt, sup)) -> print_string "Compteur = "; print_comp compt;
+		 print_string "\nSupport = ";print_sup sup; print_newline () ) prog.constraints;*)
+       let var_split = variable_to_split abs in
+       let list_split = S.to_list abs.(var_split) in
+       let nom_var = (fst prog.bijection).(var_split) in
+       print_string ("List_split "^nom_var); print_newline ();
+       List.iter (fun value -> (*print_string ("SPLIT sur "^string_of_int var_split^" val "^string_of_int value^"\n");*)
+	 let new_abs = copy abs in
+	 let new_prog = Cspplus.copy prog in
+	 let all_deleted = remove_from_list value list_split in
+	 backtrack new_prog new_abs (Affect(var_split, value, all_deleted))
+       ) list_split end
 
+end
 
-
-  let rec backtrack prog abs =
-    let new_abs = full_ac prog abs in
-    match split new_abs with
-    | [] -> if is_singleton new_abs then (print_string "Une solution\n"; print new_abs; print_newline ())
-    | l -> List.iter (fun dom_a -> backtrack prog dom_a) l
-
-  end *)
 
 let anonymous_arg = Constant.set_prob
 
@@ -205,35 +252,25 @@ let parse_args () = Arg.parse [("-trace", Constant.(Arg.Set trace), "Prints the 
 let go () =
   let open Constant in
   parse_args ();
-  let prob = File_parser.parse !problem in
-  if !trace then Format.printf "%a" Csp.print prob;
-  let probplus, to_add = Cspplus.create prob in
+  let prog = File_parser.parse !problem in
+  if !trace then Format.printf "%a" Csp.print prog;
+  let progplus, to_add = Cspplus.create prog in
   let abs = Cartesian_int.create_from_list to_add in
-  abs
+  Cartesian_int.backtrack progplus abs Nothing
+
+
+(*let _ = add_to_list 9 [1;5;4;7;6;2;8] (fun a b -> a = b)
+
+  let _ = concat_lists [1;2;3;5;9] [1;5;4;7;6;2;8] (fun a b -> a = b)*)
+
+let generate_n_queens n = for i=1 to n do
+    for j = i+1 to n do
+      let s, t = "x"^string_of_int i, "x"^string_of_int j in
+      print_string (s^" != "^t^";\n");
+      print_string (s^"-"^t^" != "^string_of_int (i-j)^";\n");
+      print_string (s^"-"^t^" != "^string_of_int (j-i)^";\n");
+    done;done
 
 
 
-(*let go () =
-  let open Constant in
-  parse_args ();
-  let prob = File_parser.parse !problem in
-  if !trace then Format.printf "%a" Csp.print prob;
-  let c1 = Cmp(GEQ, Var("y"), Binary(SUB, Binary(MUL, Cst(2.0), Var("x")), Cst(2.0))) in
-
-  let c2 = Cmp(LEQ, Binary(MUL, Cst(2.0), Var("y")), Binary(SUB, Cst(6.0), Var("x"))) in
-
-  let d1 = Alldif(["1";"2";"3"]) in
-
-  let prog = empty in
-  let prog = {prog with init= [(INT, "1", Finite(1.0, 4.0)); (INT, "2", Finite(1.0,4.0)); (INT, "3", Finite(1.0,4.0))]}(*; (INT, "4", Finite(1.0,4.0))]}*) in
-  let prog = {prog with constraints = [d1]} in
-
-  let abs = Cartesian_int.empty in
-  let abs = Cartesian_int.add_var_bounds abs "1" (1,3) in
-  let abs = Cartesian_int.add_var_bounds abs "2" (1,3) in
-  let abs = Cartesian_int.add_var_bounds abs "3" (1,3) in
-(*let abs = Cartesian_int.add_var_bounds abs "4" (1,4)*)
-
-  let abs = Cartesian_int.backtrack prog abs in
-
-  print_newline()*)
+let _ = 5/(-2)

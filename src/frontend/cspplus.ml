@@ -35,10 +35,6 @@ let csp_to_binop op = match op with
   | Csp.MAX -> MAX
   | _ -> failwith "Binary operation not allowed on integers"
 
-(* arithmetic comparison operators *)
-type cmpop =
-  | EQ | LEQ | GEQ | NEQ | GT | LT
-
 (* numeric expressions *)
 type expr =
   | Unary of unop * expr
@@ -58,14 +54,33 @@ type domain_to_add = Finite of int * int | Enumerated of int list
 
 type domain = int * int * int list (* min, max, valeurs. Remplacer int list par (int*int) list, ou bool Array?*)
 
+(* Contraintes générales *)
 type compteur = int IntEnv.t array (* On compte le nombre de supports *)
 
 type support = (int array) list IntEnv.t array (* pour toute variable, valeur on a une liste de supports *)
 
+(* Contraintes linéaires *)
+type 'a lin_expr = Add_lin of 'a lin_expr * 'a lin_expr
+		   | Mul_lin of int * 'a
+
+type value = Min_lin of var | Max_lin of var
+
+type ineq_lin_data = Lt_lin of value lin_expr
+		     | GT_lin of value lin_expr
+		     | Le_lin of value lin_expr
+		     | Ge_lin of value lin_expr
+
+type eq_lin_data = Eq of int lin_expr
+		   | Neq of int lin_expr
+
+
 type qualification = Other of compteur * support
+		     | Eq_lin of eq_lin_data array
+		     | Ineq_lin of ineq_lin_data array
 
 type constr = bexpr * var list * qualification (* * rang *)
 
+(* presence is the array of the constraints where the variable is involved *)
 type prog_plus = { constraints: constr list; presence: constr list array; bijection: string array * int Env.t}
 
 let rec power x n = if n = 0 then 1 else begin
@@ -74,9 +89,10 @@ let rec power x n = if n = 0 then 1 else begin
 (* Useful functions on constraints/programs *)
 (* ----------- *)
 let rec add_to_list l i = match l with
-  | [] -> []
+  | [] -> [i]
   | x::q when x < i -> x::add_to_list q i
-  | _ -> l
+  | x::q when x = i -> l
+  | x::q -> i::l
 
 let rec get_vars_expr expr l = match expr with
   | Unary(_, e) -> get_vars_expr e l
@@ -86,7 +102,7 @@ let rec get_vars_expr expr l = match expr with
 
 (* If you want all the vars, start with l=[]. It will be sorted in increasing order *)
 let rec get_vars_constr constr l = match constr with
-  | Cmp(_, e1, e2) -> get_vars_expr e1 (get_vars_expr e2 l)
+  | Cmp(_, e1, e2) -> get_vars_expr e2 (get_vars_expr e1 l)
   | And(e1, e2) -> get_vars_constr e1 (get_vars_constr e2 l)
   | Or(e1, e2) -> get_vars_constr e1 (get_vars_constr e2 l)
   | Not(e1) -> get_vars_constr e1 l
@@ -122,25 +138,65 @@ let to_dom_int dom = match dom with
   | Csp.Enumerated(l) -> Enumerated(List.map int_of_float l)
   | _ -> failwith "We don't deal with infinite domains"
 
+
+(* Transformation of the linear constraints *)
+(* -------------- *)
+
+(* Hypothesis: A variable doesn't appear twice or more in the constraint,
+and there is at most one additive constant in the constraint *)
+
+let rec is_expr_linear expr = match expr with
+  | Cst(i) | Var(i) -> true
+  | Binary(ADD, e1, e2) -> is_expr_linear e1 && is_expr_linear e2
+  | Binary(MUL, Cst(i), Var(v)) | Binary(MUL, Var(v), Cst(i)) -> true
+  | _ -> false
+
+let is_constr_linear constr = match constr with
+  | Cmp(_, e1, e2) -> is_expr_linear e1 && is_expr_linear e2
+  | _ -> false
+
+(* To separate the monomes of the constraint, and put them all in the left side of the constraint \sum a_ix_i + cst \le 0 *)
+let rec split_pos_neg_expr expr pos neg cst = match expr with
+  | Cst(x) -> pos, neg, cst+x
+  | Var(v) -> [(1, v)]::pos, neg, cst
+  | Binary(MUL, Cst(x), Var(v)) | Binary(MUL, Var(v), Cst(x)) ->
+     if x > 0 then [(x, v)]::pos, neg, cst else pos, [(x, v)]::neg, cst
+  | Binary(ADD, expr1, expr2) -> let pos1, neg1, cst1 = split_pos_neg_expr expr1 pos neg cst in
+			   split_pos_neg_expr expr2 pos1 neg1 cst1
+  | _ -> failwith "This is not a linear expression"
+
+let rec split_pos_neg_constr constr = match constr with
+  | Cmp(_, e1, e2) -> let neg, pos, cst = split_pos_neg_expr e2 [] [] 0 in
+		      split_pos_neg_expr e1 pos neg (-cst)
+  | _ -> failwith "This is not a linear constraint"
+
+
+
+
+
+
+
+
+
 (* Creation of the program++ *)
 (* --------- *)
 let compteur =
   let cpt = ref 0 in
-  fun () -> incr cpt; !cpt
+  fun () -> incr cpt; !cpt-1
 
 let create prog =
   let all_var = Csp.get_vars prog in
   let nb_vars = List.length all_var in
   let int_to_vars = Array.make nb_vars "" in (* bijection from integers to variables, to be able to use arrays *)
   let vars_to_int = List.fold_left (fun acc var ->
-    let suiv = compteur () in int_to_vars.(suiv) <- var;Env.add var suiv acc
+    let suiv = compteur () in
+    (*print_string (var^" -> "^string_of_int suiv^"\n");*)int_to_vars.(suiv) <- var;Env.add var suiv acc
   ) Env.empty all_var in
   let list_constr_of_var = Array.make nb_vars [] in (* List of constraints in which there is the variable *)
   let constraints = List.map (fun constr -> (* List of constraints++ *)
     let constr_plus = transform_constr constr vars_to_int in
     let vars = get_vars_constr constr_plus [] in
-    let n = List.length vars in
-    let new_constr = constr_plus, vars, Other(Array.make n IntEnv.empty, Array.make n IntEnv.empty) in
+    let new_constr = constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
     List.iter (fun var ->
       list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
     ) vars; new_constr
@@ -149,3 +205,54 @@ let create prog =
     Env.find v vars_to_int, to_dom_int d
   ) prog.Csp.init in
   { constraints = constraints; presence = list_constr_of_var; bijection = int_to_vars, vars_to_int}, vars_to_add
+
+let copy prog =
+  let list_constr_of_var = Array.make (Array.length prog.presence) [] in
+  let constr = List.map (fun (c, var_list, qual) -> match qual with
+    | Other(compt, sup) -> let new_constr = (c, var_list, Other(Array.copy compt, Array.copy sup)) in
+       List.iter (fun var ->
+      list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
+       ) var_list; new_constr
+    | _ -> (c, var_list, qual)
+    ) prog.constraints in
+  { constraints = constr; presence = list_constr_of_var; bijection = prog.bijection}
+
+let print_unop fmt = function
+  | NEG -> Format.fprintf fmt "-"
+  | ABS -> Format.fprintf fmt "abs"
+
+let print_binop fmt = function
+  | ADD -> Format.fprintf fmt "+"
+  | SUB -> Format.fprintf fmt "-"
+  | MUL -> Format.fprintf fmt "*"
+  | DIV -> Format.fprintf fmt "/"
+  | POW -> Format.fprintf fmt "^"
+  | MIN -> Format.fprintf fmt "min"
+  | MAX -> Format.fprintf fmt "max"
+
+let rec print_expr fmt = function
+  | Unary (NEG, e) ->
+    Format.fprintf fmt "(- %a)" print_expr e
+  | Unary (u, e) ->
+    Format.fprintf fmt "%a %a" print_unop u print_expr e
+  | Binary (b, e1 , e2) ->
+    Format.fprintf fmt "%a %a %a" print_expr e1 print_binop b print_expr e2
+  | Var v -> Format.fprintf fmt "%d" v
+  | Cst c -> Format.fprintf fmt "%d" c
+
+let rec print_list fmt = function
+  | [] -> ()
+  | [x] -> Format.fprintf fmt "%d" x
+  | x::q -> Format.fprintf fmt "%d, %a" x print_list q
+
+let rec print_bexpr fmt = function
+  | Cmp (c,e1,e2) ->
+    Format.fprintf fmt "%a %a %a" print_expr e1 Csp.print_cmpop c print_expr e2
+  | And (b1,b2) ->
+    Format.fprintf fmt "%a && %a" print_bexpr b1 print_bexpr b2
+  | Or  (b1,b2) ->
+    Format.fprintf fmt "%a || %a" print_bexpr b1 print_bexpr b2
+  | Not b -> Format.fprintf fmt "not %a" print_bexpr b
+  | Alldif l -> Format.fprintf fmt "all_different(%a)" print_list l
+
+let print_constr (c, _, _) = Format.printf "%a\n" print_bexpr c
