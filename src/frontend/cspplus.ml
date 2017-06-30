@@ -6,6 +6,7 @@
 
 module Env = Map.Make(struct type t=string let compare=compare end)
 module IntEnv = Map.Make(struct type t=int let compare=compare end)
+module VarSet = Set.Make(struct type t=int*int let compare= fun (_, v1) (_, v2) -> compare v1 v2 end)
 
 (*Redifinition of type of programs to have constant access to variables (now ints) *)
 (* variables are identified by an int *)
@@ -62,13 +63,14 @@ type support = (int array) list IntEnv.t array (* pour toute variable, valeur on
 (* Contraintes linéaires *)
 type 'a lin_expr = Add_lin of 'a lin_expr * 'a lin_expr
 		   | Mul_lin of int * 'a
+		   | Cst_lin of int
 
 type value = Min_lin of var | Max_lin of var
 
-type ineq_lin_data = Lt_lin of value lin_expr
-		     | GT_lin of value lin_expr
-		     | Le_lin of value lin_expr
-		     | Ge_lin of value lin_expr
+type ineq_lin_data = LT_lin of int * value lin_expr
+		     | GT_lin of int * value lin_expr
+		     | LEQ_lin of int * value lin_expr
+		     | GEQ_lin of int * value lin_expr
 
 type eq_lin_data = Eq of int lin_expr
 		   | Neq of int lin_expr
@@ -114,6 +116,7 @@ let is_support_empty sup =
 let appears_in_constr var (_, l, _) =
   List.mem var l
 
+
 (* Transformation des contraintes pour les rendre plus facilement manipulables: les variables deviennent des entiers *)
 (* ----------- *)
 let rec transform_list l bij = match l with
@@ -142,8 +145,7 @@ let to_dom_int dom = match dom with
 (* Transformation of the linear constraints *)
 (* -------------- *)
 
-(* Hypothesis: A variable doesn't appear twice or more in the constraint,
-and there is at most one additive constant in the constraint *)
+(* Hypothesis: A variable doesn't appear twice or more in the constraint *)
 
 let rec is_expr_linear expr = match expr with
   | Cst(i) | Var(i) -> true
@@ -151,26 +153,54 @@ let rec is_expr_linear expr = match expr with
   | Binary(MUL, Cst(i), Var(v)) | Binary(MUL, Var(v), Cst(i)) -> true
   | _ -> false
 
-let is_constr_linear constr = match constr with
+let is_constr_ineq_linear constr = match constr with
   | Cmp(_, e1, e2) -> is_expr_linear e1 && is_expr_linear e2
   | _ -> false
 
 (* To separate the monomes of the constraint, and put them all in the left side of the constraint \sum a_ix_i + cst \le 0 *)
 let rec split_pos_neg_expr expr pos neg cst = match expr with
-  | Cst(x) -> pos, neg, cst+x
-  | Var(v) -> [(1, v)]::pos, neg, cst
-  | Binary(MUL, Cst(x), Var(v)) | Binary(MUL, Var(v), Cst(x)) ->
-     if x > 0 then [(x, v)]::pos, neg, cst else pos, [(x, v)]::neg, cst
+  | Cst(coeff) -> pos, neg, cst+coeff
+  | Var(var) -> VarSet.add (1, var) pos, neg, cst
+  | Binary(MUL, Cst(x), Var(var)) | Binary(MUL, Var(var), Cst(x)) ->
+     if x > 0 then VarSet.add (x, var) pos, neg, cst else pos, VarSet.add (x, var) neg, cst
   | Binary(ADD, expr1, expr2) -> let pos1, neg1, cst1 = split_pos_neg_expr expr1 pos neg cst in
 			   split_pos_neg_expr expr2 pos1 neg1 cst1
   | _ -> failwith "This is not a linear expression"
 
 let rec split_pos_neg_constr constr = match constr with
-  | Cmp(_, e1, e2) -> let neg, pos, cst = split_pos_neg_expr e2 [] [] 0 in
+  | Cmp(_, e1, e2) -> let neg, pos, cst = split_pos_neg_expr e2 VarSet.empty VarSet.empty 0 in
 		      split_pos_neg_expr e1 pos neg (-cst)
   | _ -> failwith "This is not a linear constraint"
 
+let rec to_right_side do_min do_neg l acc = match l with
+  | [] -> acc
+  | (coeff, var)::q ->
+     let new_coeff = if do_neg then -coeff else coeff in
+     let new_var = if do_min then Min_lin(var) else Max_lin(var) in
+     to_right_side do_min do_neg q (Add_lin(Mul_lin(new_coeff, new_var),acc))
 
+
+
+(* Assume the constraint is a linear inequality *)
+let transform_to_linear constr vars nb_total_var = match constr with
+  | Cmp(op, _, _) when op <> Csp.NEQ && op <> Csp.EQ ->
+     let constr_data = Array.make nb_total_var (LT_lin(0, Cst_lin(0))) in
+     let pos, neg, cst = split_pos_neg_constr constr in
+     VarSet.iter (fun (coeff, var) ->
+       if coeff > 0 then begin
+	 match op with
+	 | Csp.LT -> ()
+	 | Csp.GT -> ()
+	 | Csp.GEQ -> ()
+	 | Csp.LEQ -> ()
+	 | _ -> failwith "This time it is really impossible"
+       end
+       else begin
+	 ()
+       end
+     ) pos (*TODO*)
+  | Cmp(_, _, _) -> ()
+  | _ -> failwith "We assumed the constraint was linear!!"
 
 
 
