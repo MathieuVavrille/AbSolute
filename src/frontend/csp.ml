@@ -170,46 +170,6 @@ let rec is_cons_linear = function
   | Not b -> is_cons_linear b
   | Alldif l -> false
 
-
-
-(*************************************************************)
-(*                   Constraints conversion                  *)
-(*************************************************************)
-
-
-(* Put the linear constraint to the form 0 <= a1X1 + ... + anXn *)
-(*let to_good_form c =
-  let rec add_to_right coeff name expr = match expr with
-    | Binary(MUL, Cst(i), Var(v)) when v = name -> Binary(MUL, Cst(i -. coeff), Var(v))
-    | Binary(MUL, _, _) -> Binary( ADD, expr, Binary(MUL, Cst(-. coeff), Var(name)))
-    | Binary(ADD, Binary(MUL, Cst(i), Var(v)), a) when v = name -> Binary(ADD, Binary(MUL, Cst(i -. coeff), Var(v)), a)
-    | Binary(ADD, a, b) -> Binary(ADD, a, add_to_right coeff name b)
-    | _ -> failwith "Shouldn't happen, if happens then one of the previous functions are not correct"
-  in
-  let rec add_to_left coeff name expr = 
-  | Binary(MUL, Cst(i), Var(v)) when v = name -> Binary(MUL, Cst(i +. coeff), Var(v))
-  | Binary(MUL, _, _) -> Binary( ADD, expr, Binary(MUL, Cst(coeff), Var(name)))
-  | Binary(ADD, Binary(MUL, Cst(i), Var(v)), a) when v = name -> Binary(ADD, Binary(MUL, Cst(i +. coeff), Var(v)), a)
-  | Binary(ADD, a, b) -> Binary(ADD, a, add_to_right coeff name b)
-  | _ -> failwith "Shouldn't happen, if happens then one of the previous functions are not correct"
-  in
-  let rec split *)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-     
-
 (*************************************************************)
 (*                    PRINTING UTILITIES                     *)
 (*************************************************************)
@@ -265,7 +225,7 @@ let rec print_list fmt = function
   | [] -> ()
   | [x] -> Format.fprintf fmt "%s" x
   | x::q -> Format.fprintf fmt "%s, %a" x print_list q
-     
+
 let print_assign fmt (a,b,c) =
   Format.fprintf fmt "%a %a=%a" print_typ a print_var b print_dom c
 

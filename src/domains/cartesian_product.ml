@@ -109,6 +109,12 @@ module Cartesian_int = struct
       | x::q -> aux (vars.(x)::l) q
 		   in aux [] l
 
+  let rec eval_ineq ineq abs = match ineq with
+    | Add_lin(i1, i2) -> eval_ineq i1 abs + eval_ineq i2 abs
+    | Mul_lin(coeff, Min_lin(var)) -> coeff * S.min abs.(var)
+    | Mul_lin(coeff, Max_lin(var)) -> coeff * S.max abs.(var)
+    | Cst_lin(c) -> c
+
   let print_env affiche env = print_string "{";
     IntEnv.iter (fun i v ->
       print_int i; print_string ":"; affiche v; print_string "|") env;
@@ -129,6 +135,20 @@ module Cartesian_int = struct
   let create_intenv values param =
     List.fold_left (fun acc value ->
       IntEnv.add value param acc) IntEnv.empty values
+
+  let bc_ineq abs tab var_list = List.fold_left (fun acc var ->
+      match tab.(var) with
+      | LT_lin(coeff, expr) ->
+	 let value = eval_ineq expr abs in
+	 if value mod coeff = 0 then List.rev_append S.list_greater_eq abs.(var)
+      | GT_lin(coeff, expr) ->
+      | LEQ_lin(coeff, expr) ->
+      | GEQ_lin(coeff, expr) ->
+
+
+
+    ) var_list
+
 
   let ac abs (constr, var_list, qual) prog = (*print_string "ac\n";*)
     match qual with
@@ -170,6 +190,7 @@ module Cartesian_int = struct
     end
       else find_non_supported ()
 
+    | Ineq_lin(tab) ->
 
   (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
   let delete_from_constr var value ((constr, vars_list, qual) as c) = (*print_constr c;print_string ("dddelete_from_constr "^string_of_int var^" "^string_of_int value^"\n");*)match qual with

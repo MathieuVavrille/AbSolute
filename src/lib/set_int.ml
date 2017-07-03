@@ -56,6 +56,26 @@ let delete ((mini, maxi, l) as l_plus) x = match mini = x, maxi = x with
        | y::q -> y::aux q
      in mini, maxi, aux l
 
+(* remove all the elements strictly smaller than x *)
+let rec reduce_min (mini, maxi, l) x =
+  if x <= mini then
+    [], (mini, maxi, l)
+  else match l with
+  | [] -> [], (0, 0, [])
+  | [y] -> [], (0, 0, [])
+  | y::mini2::q -> let deleted, l = reduce_min (mini2, maxi, q) x
+		   in y::deleted, l
+
+let rec list_smaller_eq (mini, maxi, l) x = match l with
+  | [] -> []
+  | y::q when y > x -> []
+  | y::q -> y::list_smaller_eq (mini, maxi, l) x
+
+let rec list_greater_eq (mini, maxi, l) x = match l with
+  | [] -> []
+  | y::q when y >= x -> l
+  | _::q -> list_smaller_eq (mini, maxi, l) x
+
 let is_empty (_, _, l) = l = []
 
 let of_singleton x = (x, x, [x])
