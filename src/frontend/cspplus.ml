@@ -345,4 +345,4 @@ let copy prog =
        ) var_list; new_constr
     | _ -> (c, var_list, qual)
     ) prog.constraints in
-  { constraints = constr; presence = list_constr_of_var; bijection = prog.bijection}
+  { constraints = constr; presence = prog.presence; bijection = prog.bijection}
