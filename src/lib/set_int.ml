@@ -69,18 +69,20 @@ let rec reduce_min (mini, maxi, l) x =
 let rec list_smaller_eq (mini, maxi, l) x = match l with
   | [] -> []
   | y::q when y > x -> []
-  | y::q -> y::list_smaller_eq (mini, maxi, l) x
+  | y::q -> y::list_smaller_eq (mini, maxi, q) x
 
 let rec list_greater_eq (mini, maxi, l) x = match l with
   | [] -> []
   | y::q when y >= x -> l
-  | _::q -> list_smaller_eq (mini, maxi, l) x
+  | _::q -> list_greater_eq (mini, maxi, q) x
 
 let is_empty (_, _, l) = l = []
 
 let of_singleton x = (x, x, [x])
 
 let is_singleton (mini, maxi, l) = (mini = maxi && l!=[])
+
+let to_singleton (mini, _, _) = mini
 
 let length (mini, maxi, l) = List.length l
 

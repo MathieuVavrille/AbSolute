@@ -88,6 +88,52 @@ type prog_plus = { constraints: constr list; presence: constr list array; biject
 let rec power x n = if n = 0 then 1 else begin
   if n > 0 then x*power x (n-1) else failwith "power of non positive value" end
 
+(******************************************)
+(*          Printing                      *)
+(******************************************)
+
+let print_unop fmt = function
+  | NEG -> Format.fprintf fmt "-"
+  | ABS -> Format.fprintf fmt "abs"
+
+let print_binop fmt = function
+  | ADD -> Format.fprintf fmt "+"
+  | SUB -> Format.fprintf fmt "-"
+  | MUL -> Format.fprintf fmt "*"
+  | DIV -> Format.fprintf fmt "/"
+  | POW -> Format.fprintf fmt "^"
+  | MIN -> Format.fprintf fmt "min"
+  | MAX -> Format.fprintf fmt "max"
+
+let rec print_expr fmt = function
+  | Unary (NEG, e) ->
+    Format.fprintf fmt "(- %a)" print_expr e
+  | Unary (u, e) ->
+    Format.fprintf fmt "%a %a" print_unop u print_expr e
+  | Binary (b, e1 , e2) ->
+    Format.fprintf fmt "%a %a %a" print_expr e1 print_binop b print_expr e2
+  | Var v -> Format.fprintf fmt "%d" v
+  | Cst c -> Format.fprintf fmt "CST(%d)" c
+
+let rec print_list fmt = function
+  | [] -> ()
+  | [x] -> Format.fprintf fmt "%d" x
+  | x::q -> Format.fprintf fmt "%d, %a" x print_list q
+
+let rec print_bexpr fmt = function
+  | Cmp (c,e1,e2) ->
+    Format.fprintf fmt "%a %a %a" print_expr e1 Csp.print_cmpop c print_expr e2
+  | And (b1,b2) ->
+    Format.fprintf fmt "%a && %a" print_bexpr b1 print_bexpr b2
+  | Or  (b1,b2) ->
+    Format.fprintf fmt "%a || %a" print_bexpr b1 print_bexpr b2
+  | Not b -> Format.fprintf fmt "not %a" print_bexpr b
+  | Alldif l -> Format.fprintf fmt "all_different(%a)" print_list l
+
+let print_constr (c, _, _) = Format.printf "%a\n" print_bexpr c
+
+
+
 (* Useful functions on constraints/programs *)
 (* ----------- *)
 let rec add_to_list l i = match l with
@@ -158,11 +204,11 @@ let rec is_expr_linear expr = match expr with
     | Cst(i) -> true
     | Unary(NEG, Cst(i)) -> true
     | _ -> false)
-  | Unary(NEG, Var(v)) -> true
+  | Unary(NEG, e1) -> is_expr_linear e1
   | _ -> false
 
-let is_constr_linear constr = match constr with
-  | Cmp(op, e1, e2) -> is_expr_linear e1 && is_expr_linear e2
+let is_constr_ineq_linear constr = match constr with
+  | Cmp(op, e1, e2) when op <> Csp.NEQ && op <> Csp.EQ -> is_expr_linear e1 && is_expr_linear e2
   | _ -> false
 
 (* To separate the monomes of the constraint, and put them all in the left side of the constraint \sum a_ix_i - \sum a_ix_i + cst \le 0 *)
@@ -178,7 +224,8 @@ let rec split_pos_neg_expr expr pos neg cst = match expr with
      if x > 0 then VarSet.add (x, var) pos, neg, cst else
        if x < 0 then pos, VarSet.add (-x, var) neg, cst else
 	 pos, neg, cst
-  | Binary(MUL, Cst(0), _) | Binary(MUL, _, Cst(0)) -> pos, neg, cst
+  | Unary(NEG, expr1) -> let neg2, pos2, cst2 = split_pos_neg_expr expr1 neg pos (-cst) in
+			 pos2, neg2, -cst2
   | Binary(ADD, expr1, expr2) ->
      let pos1, neg1, cst1 = split_pos_neg_expr expr1 pos neg cst in
      split_pos_neg_expr expr2 pos1 neg1 cst1
@@ -205,8 +252,8 @@ let transform_to_linear constr nb_total_var = match constr with
   | Cmp(op, _, _) when op <> Csp.NEQ && op <> Csp.EQ ->
      let constr_data = Array.make nb_total_var (LT_lin(0, Cst_lin(0))) in
      let pos, neg, cst = split_pos_neg_constr constr in
-     VarSet.iter (fun (coeff, var) -> print_int var) pos; print_newline ();
-     VarSet.iter (fun (coeff, var) -> print_int var) neg; print_newline ();
+     (*VarSet.iter (fun (coeff, var) -> print_int var) pos; print_newline ();
+       VarSet.iter (fun (coeff, var) -> print_int var) neg; print_newline ();*)
      let neg_min_right = to_right_side true false neg (Cst_lin(-cst)) in
      let neg_max_right = to_right_side false false neg (Cst_lin(-cst)) in
      let pos_min_left = to_right_side true false pos (Cst_lin(cst)) in
@@ -269,15 +316,15 @@ let create prog =
   ) Env.empty all_var in
   let list_constr_of_var = Array.make nb_vars [] in (* List of constraints in which there is the variable *)
   let constraints = List.map (fun constr -> (* List of constraints++ *)
-    Format.printf "%a\n" Csp.print_bexpr constr;
+    (*Format.printf "%a\n" Csp.print_bexpr constr;*)
     let constr_plus = transform_constr constr vars_to_int in
     let vars = get_vars_constr constr_plus [] in
-    let new_constr = if is_constr_linear constr_plus then begin
+    let new_constr = if is_constr_ineq_linear constr_plus then begin print_string "is_linear\n";
       let linear = transform_to_linear constr_plus nb_vars in
       (match linear with
       | Ineq_lin(a) -> print_string (ineq_lin_to_string a)
-      | _ -> ());
-	constr_plus, vars, transform_to_linear constr_plus nb_vars end
+	| _ -> ());
+      constr_plus, vars, linear(*transform_to_linear constr_plus nb_vars*) end
       else
 	constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
     List.iter (fun var ->
@@ -299,43 +346,3 @@ let copy prog =
     | _ -> (c, var_list, qual)
     ) prog.constraints in
   { constraints = constr; presence = list_constr_of_var; bijection = prog.bijection}
-
-let print_unop fmt = function
-  | NEG -> Format.fprintf fmt "-"
-  | ABS -> Format.fprintf fmt "abs"
-
-let print_binop fmt = function
-  | ADD -> Format.fprintf fmt "+"
-  | SUB -> Format.fprintf fmt "-"
-  | MUL -> Format.fprintf fmt "*"
-  | DIV -> Format.fprintf fmt "/"
-  | POW -> Format.fprintf fmt "^"
-  | MIN -> Format.fprintf fmt "min"
-  | MAX -> Format.fprintf fmt "max"
-
-let rec print_expr fmt = function
-  | Unary (NEG, e) ->
-    Format.fprintf fmt "(- %a)" print_expr e
-  | Unary (u, e) ->
-    Format.fprintf fmt "%a %a" print_unop u print_expr e
-  | Binary (b, e1 , e2) ->
-    Format.fprintf fmt "%a %a %a" print_expr e1 print_binop b print_expr e2
-  | Var v -> Format.fprintf fmt "%d" v
-  | Cst c -> Format.fprintf fmt "%d" c
-
-let rec print_list fmt = function
-  | [] -> ()
-  | [x] -> Format.fprintf fmt "%d" x
-  | x::q -> Format.fprintf fmt "%d, %a" x print_list q
-
-let rec print_bexpr fmt = function
-  | Cmp (c,e1,e2) ->
-    Format.fprintf fmt "%a %a %a" print_expr e1 Csp.print_cmpop c print_expr e2
-  | And (b1,b2) ->
-    Format.fprintf fmt "%a && %a" print_bexpr b1 print_bexpr b2
-  | Or  (b1,b2) ->
-    Format.fprintf fmt "%a || %a" print_bexpr b1 print_bexpr b2
-  | Not b -> Format.fprintf fmt "not %a" print_bexpr b
-  | Alldif l -> Format.fprintf fmt "all_different(%a)" print_list l
-
-let print_constr (c, _, _) = Format.printf "%a\n" print_bexpr c

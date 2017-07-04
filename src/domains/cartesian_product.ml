@@ -75,6 +75,9 @@ module Cartesian_int = struct
   let is_singleton abs =
     Array.for_all S.is_singleton abs
 
+  let singleton_to_array abs =
+    Array.map S.to_singleton abs
+
   let rec value_expr e vars = match e with
     | Unary(op, e1) -> (match op with
       | NEG -> -value_expr e1 vars
@@ -109,6 +112,12 @@ module Cartesian_int = struct
       | x::q -> aux (vars.(x)::l) q
 		   in aux [] l
 
+  let is_a_solution abs constrs =
+    if is_singleton abs then begin
+      let sol = singleton_to_array abs in
+      List.for_all (fun c -> is_satisfied c sol) constrs end
+    else false
+
   let rec eval_ineq ineq abs = match ineq with
     | Add_lin(i1, i2) -> eval_ineq i1 abs + eval_ineq i2 abs
     | Mul_lin(coeff, Min_lin(var)) -> coeff * S.min abs.(var)
@@ -136,21 +145,38 @@ module Cartesian_int = struct
     List.fold_left (fun acc value ->
       IntEnv.add value param acc) IntEnv.empty values
 
-  let bc_ineq abs tab var_list = List.fold_left (fun acc var ->
+  let bc_ineq abs tab var_list =
+    let add_cpl var l = List.map (fun value -> var, value) l in
+    List.fold_left (fun acc var ->
       match tab.(var) with
       | LT_lin(coeff, expr) ->
 	 let value = eval_ineq expr abs in
-	 if value mod coeff = 0 then List.rev_append S.list_greater_eq abs.(var)
+	 let value_bound = if value mod coeff = 0 then value/coeff
+	   else if value < 0 then value/coeff
+	   else value/coeff + 1 in
+	 List.rev_append (add_cpl var (S.list_greater_eq abs.(var) value_bound)) acc
       | GT_lin(coeff, expr) ->
+	 let value = eval_ineq expr abs in
+	 let value_bound = if value mod coeff = 0 then value/coeff
+	   else if value < 0 then value/coeff-1
+	   else value/coeff in
+	 List.rev_append (add_cpl var (S.list_smaller_eq abs.(var) value_bound)) acc
       | LEQ_lin(coeff, expr) ->
+	 let value = eval_ineq expr abs in
+	 let value_bound = if value mod coeff = 0 then value/coeff+1
+	   else if value < 0 then value/coeff
+	   else value/coeff + 1 in
+	 List.rev_append (add_cpl var (S.list_greater_eq abs.(var) value_bound)) acc
       | GEQ_lin(coeff, expr) ->
+	 let value = eval_ineq expr abs in
+	 let value_bound = if value mod coeff = 0 then value/coeff-1
+	   else if value < 0 then value/coeff-1
+	   else value/coeff in
+	 List.rev_append (add_cpl var (S.list_smaller_eq abs.(var) value_bound)) acc
+    ) [] var_list
 
-
-
-    ) var_list
-
-
-  let ac abs (constr, var_list, qual) prog = (*print_string "ac\n";*)
+  (* Function that will do the consistency on a constraint, depending on its kind (for linear, it will be bound consistency for example *)
+  let ac abs (constr, var_list, qual) prog = print_string "ac\n";
     match qual with
     | Other(compt, sup) ->
     (* Function to find all the values to delete *)
@@ -190,10 +216,11 @@ module Cartesian_int = struct
     end
       else find_non_supported ()
 
-    | Ineq_lin(tab) ->
+    | Ineq_lin(tab) -> print_string (ineq_lin_to_string tab);bc_ineq abs tab var_list
+    | Eq_lin(tab) -> failwith "AC of eq_lin"
 
   (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
-  let delete_from_constr var value ((constr, vars_list, qual) as c) = (*print_constr c;print_string ("dddelete_from_constr "^string_of_int var^" "^string_of_int value^"\n");*)match qual with
+  let delete_from_constr abs var value (constr, vars_list, qual)  = (*print_constr c;*)print_string ("delete_from_constr "^string_of_int var^" "^string_of_int value^"\n");match qual with
     | Other(compt, sup) -> if not (is_support_empty compt && is_support_empty sup) then begin
       let tuple_list = IntEnv.find value sup.(var) in
        (*print_list tuple_list print_ins;*)
@@ -213,14 +240,19 @@ module Cartesian_int = struct
 	   | _ -> to_delete
 	 ) new_to_delete vars_list
        ) [] tuple_list end else []
+    | Ineq_lin(tab) -> bc_ineq abs tab vars_list
+    | Eq_lin(tab) -> failwith "delete from constr of eq_lin"
+
 
   (* Makes the domain arc consistent, returns true if the domain is inconsistent *)
   let full_ac abs prog action = (*print_string "fullac\n"; print abs prog;*)
     let rec propagate_var l = match l with
       | [] -> false
-      | (var, value)::q -> (*print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print abs prog;*)if delete abs var value then true else begin
+      | (var, value)::q -> if delete abs var value then true else begin
+	print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print abs prog;
+	print_string ("min "^string_of_int var^" = "^string_of_int (S.min abs.(var))^" et max = "^string_of_int (S.max abs.(var))^"\n");
 	let to_delete = List.fold_left (fun acc constr ->
-	  let new_delete = delete_from_constr var value constr in
+	  let new_delete = delete_from_constr abs var value constr in
 	  concat_lists new_delete acc (fun a b -> a = b)
 	) q prog.presence.(var) in
 	propagate_var to_delete
@@ -249,7 +281,10 @@ module Cartesian_int = struct
   let rec backtrack prog abs action =
     if not (full_ac abs prog action) then begin
     match is_singleton abs with
-    | true -> print_string "Resultat: "; print abs prog;(*Format.printf "%a\n" print (abs,prog); *)print_newline ()
+    | true -> if is_a_solution abs (List.map (fun (a, _, _) -> a ) prog.constraints) then begin
+      print_string "Resultat: "; print abs prog;(*Format.printf "%a\n" print (abs,prog); *)print_newline () end
+      else begin
+	print_string "Erreur: ";print abs prog end
     | false -> (*List.iter (fun (_, _, Other(compt, sup)) -> print_string "Compteur = "; print_comp compt;
 		 print_string "\nSupport = ";print_sup sup; print_newline () ) prog.constraints;*)
        let var_split = variable_to_split abs in
