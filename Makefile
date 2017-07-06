@@ -51,6 +51,7 @@ MLFILES = \
   src/lib/mapext.ml \
   src/lib/bot.ml \
   src/frontend/cspplus.ml \
+  src/lib/all_different.ml \
   src/lib/rationals/datatypes.ml \
   src/lib/rationals/int.ml \
   src/lib/rationals/float.ml \
@@ -61,7 +62,8 @@ MLFILES = \
   src/lib/bound_mpqf.ml \
   src/lib/bound_float.ml \
   src/lib/bound_int.ml \
-  src/lib/set_int.ml \
+  src/lib/int_dom_list.ml \
+  src/lib/int_dom_set.ml \
   src/lib/itv_sig.ml \
   src/lib/itv.ml \
 	src/lib/newitv.ml \

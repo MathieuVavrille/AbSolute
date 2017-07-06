@@ -72,13 +72,14 @@ type ineq_lin_data = LT_lin of int * value lin_expr
 		     | LEQ_lin of int * value lin_expr
 		     | GEQ_lin of int * value lin_expr
 
-type eq_lin_data = Eq of int lin_expr
-		   | Neq of int lin_expr
+type eq_lin_data = EQ_lin of int * int lin_expr
+		   | NEQ_lin of int * int lin_expr
 
 
 type qualification = Other of compteur * support
 		     | Eq_lin of eq_lin_data array
 		     | Ineq_lin of ineq_lin_data array
+		     | All_dif
 
 type constr = bexpr * var list * qualification (* * rang *)
 
@@ -131,6 +132,35 @@ let rec print_bexpr fmt = function
   | Alldif l -> Format.fprintf fmt "all_different(%a)" print_list l
 
 let print_constr (c, _, _) = Format.printf "%a\n" print_bexpr c
+
+let rec min_max_to_string m = match m with
+  | Add_lin(m1, m2) -> min_max_to_string m1^" + "^min_max_to_string m2
+  | Mul_lin(coeff, Min_lin(var)) -> string_of_int coeff^"*Min("^string_of_int var^")"
+  | Mul_lin(coeff, Max_lin(var)) -> string_of_int coeff^"*Max("^string_of_int var^")"
+  | Cst_lin(i) -> string_of_int i
+
+let ineq_to_string ineq = match ineq with
+  | LT_lin(coeff, minmax) -> string_of_int coeff^"*VAR < "^min_max_to_string minmax
+  | GT_lin(coeff, minmax) -> string_of_int coeff^"*VAR > "^min_max_to_string minmax
+  | LEQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR <= "^min_max_to_string minmax
+  | GEQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR >= "^min_max_to_string minmax
+
+let ineq_lin_to_string tab =
+  Array.fold_left (fun acc constr ->
+    acc^"\n"^ineq_to_string constr^";") "[|" tab^"|]\n"
+
+let rec eq_to_string m = match m with
+  | Add_lin(m1, m2) -> eq_to_string m1^" + "^eq_to_string m2
+  | Mul_lin(coeff, var) -> string_of_int coeff^"*"^string_of_int var
+  | Cst_lin(i) -> string_of_int i
+
+let eq_to_string ineq = match ineq with
+  | EQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR = "^eq_to_string minmax
+  | NEQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR <> "^eq_to_string minmax
+
+let eq_lin_to_string tab =
+  Array.fold_left (fun acc constr ->
+    acc^"\n"^eq_to_string constr^";") "[|" tab^"|]\n"
 
 
 
@@ -193,6 +223,8 @@ let to_dom_int dom = match dom with
 
 (* Hypothesis: A variable doesn't appear twice or more in the constraint *)
 
+(* Inequalities *)
+
 let is_ineq op = match op with
   | Csp.EQ | Csp.NEQ -> false
   | _ -> true
@@ -207,8 +239,8 @@ let rec is_expr_linear expr = match expr with
   | Unary(NEG, e1) -> is_expr_linear e1
   | _ -> false
 
-let is_constr_ineq_linear constr = match constr with
-  | Cmp(op, e1, e2) when op <> Csp.NEQ && op <> Csp.EQ -> is_expr_linear e1 && is_expr_linear e2
+let is_constr_linear constr = match constr with
+  | Cmp(op, e1, e2) -> is_expr_linear e1 && is_expr_linear e2
   | _ -> false
 
 (* To separate the monomes of the constraint, and put them all in the left side of the constraint \sum a_ix_i - \sum a_ix_i + cst \le 0 *)
@@ -246,6 +278,11 @@ let rec to_right_side do_min do_neg s acc =
     Add_lin(Mul_lin(new_coeff, new_var),acc)
   ) s acc
 
+let rec to_right_side_eq do_neg s acc =
+  VarSet.fold (fun (coeff, var) acc ->
+    let new_coeff = if do_neg then -coeff else coeff in
+    Add_lin(Mul_lin(new_coeff, var), acc)
+  ) s acc
 
 (* Assume the constraint is a linear inequality *)
 let transform_to_linear constr nb_total_var = match constr with
@@ -257,7 +294,7 @@ let transform_to_linear constr nb_total_var = match constr with
      let neg_min_right = to_right_side true false neg (Cst_lin(-cst)) in
      let neg_max_right = to_right_side false false neg (Cst_lin(-cst)) in
      let pos_min_left = to_right_side true false pos (Cst_lin(cst)) in
-     let pos_max_left = to_right_side true false pos (Cst_lin(cst)) in
+     let pos_max_left = to_right_side false false pos (Cst_lin(cst)) in
      (* Rules for the bound consistency on linear constraints, with min and max of a variable *)
      VarSet.iter (fun (coeff, var) ->
        let pos_removed = VarSet.remove (coeff, var) pos in
@@ -277,26 +314,26 @@ let transform_to_linear constr nb_total_var = match constr with
        | Csp.GEQ -> constr_data.(var) <- LEQ_lin(coeff, to_right_side true true neg_removed pos_max_left)
        | _ -> failwith "This time it is really impossible"
      ) neg; Ineq_lin(constr_data)
-  | Cmp(_, _, _) ->  failwith "TODO, linear equality" (* Si égalité linéaire *)
+  | Cmp(op, _, _) ->
+     let constr_data = Array.make nb_total_var (EQ_lin(0, Cst_lin(0))) in
+     let pos, neg, cst = split_pos_neg_constr constr in
+     let neg_right = to_right_side_eq false neg (Cst_lin(-cst)) in
+     let pos_right = to_right_side_eq false pos (Cst_lin(cst)) in
+     VarSet.iter (fun (coeff, var) ->
+       let pos_removed = VarSet.remove (coeff, var) pos in
+       match op with
+       | Csp.EQ -> constr_data.(var) <- EQ_lin(coeff, to_right_side_eq true pos_removed neg_right)
+       | Csp.NEQ -> constr_data.(var) <- NEQ_lin(coeff, to_right_side_eq true pos_removed neg_right)
+       | _ -> failwith "This time it is really impossible"
+     ) pos;
+     VarSet.iter (fun (coeff, var) ->
+       let neg_removed = VarSet.remove (coeff, var) neg in
+       match op with
+       | Csp.EQ -> constr_data.(var) <- EQ_lin(coeff, to_right_side_eq true neg_removed pos_right)
+       | Csp.NEQ -> constr_data.(var) <- NEQ_lin(coeff, to_right_side_eq true neg_removed pos_right)
+       | _ -> failwith "This time it is really impossible"
+     ) neg; Eq_lin(constr_data)
   | _ -> failwith "We assumed the constraint was linear!!"
-
-
-
-let rec min_max_to_string m = match m with
-  | Add_lin(m1, m2) -> min_max_to_string m1^" + "^min_max_to_string m2
-  | Mul_lin(coeff, Min_lin(var)) -> string_of_int coeff^"*Min("^string_of_int var^")"
-  | Mul_lin(coeff, Max_lin(var)) -> string_of_int coeff^"*Max("^string_of_int var^")"
-  | Cst_lin(i) -> string_of_int i
-
-let ineq_to_string ineq = match ineq with
-  | LT_lin(coeff, minmax) -> string_of_int coeff^"*VAR < "^min_max_to_string minmax
-  | GT_lin(coeff, minmax) -> string_of_int coeff^"*VAR > "^min_max_to_string minmax
-  | LEQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR <= "^min_max_to_string minmax
-  | GEQ_lin(coeff, minmax) -> string_of_int coeff^"*VAR >= "^min_max_to_string minmax
-
-let ineq_lin_to_string tab =
-  Array.fold_left (fun acc constr ->
-    acc^"\n"^ineq_to_string constr^";") "[|" tab^"|]\n"
 
 
 
@@ -319,14 +356,16 @@ let create prog =
     (*Format.printf "%a\n" Csp.print_bexpr constr;*)
     let constr_plus = transform_constr constr vars_to_int in
     let vars = get_vars_constr constr_plus [] in
-    let new_constr = if is_constr_ineq_linear constr_plus then begin print_string "is_linear\n";
+    let new_constr = if is_constr_linear constr_plus then begin
       let linear = transform_to_linear constr_plus nb_vars in
-      (match linear with
+      (*(match linear with
       | Ineq_lin(a) -> print_string (ineq_lin_to_string a)
-	| _ -> ());
+      | Eq_lin(a) -> print_string (eq_lin_to_string a)
+	| _ -> ());*)
       constr_plus, vars, linear(*transform_to_linear constr_plus nb_vars*) end
-      else
-	constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
+      else match constr_plus with
+      | Alldif(l) -> constr_plus, vars, All_dif
+      | _ -> constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
     List.iter (fun var ->
       list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
     ) vars; new_constr
@@ -336,13 +375,19 @@ let create prog =
   ) prog.Csp.init in
   { constraints = constraints; presence = list_constr_of_var; bijection = int_to_vars, vars_to_int}, vars_to_add
 
+(* We also have to update the list of presence because the we don't have the correct reference to the constraint *)
 let copy prog =
   let list_constr_of_var = Array.make (Array.length prog.presence) [] in
   let constr = List.map (fun (c, var_list, qual) -> match qual with
-    | Other(compt, sup) -> let new_constr = (c, var_list, Other(Array.copy compt, Array.copy sup)) in
+    | Other(compt, sup) ->
+       let new_constr = (c, var_list, Other(Array.copy compt, Array.copy sup)) in
        List.iter (fun var ->
-      list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
+	 list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
        ) var_list; new_constr
-    | _ -> (c, var_list, qual)
+    | _ ->
+       let new_constr = (c, var_list, qual) in
+       List.iter (fun var ->
+	 list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
+       ) var_list; new_constr
     ) prog.constraints in
-  { constraints = constr; presence = prog.presence; bijection = prog.bijection}
+  { constraints = constr; presence = list_constr_of_var; bijection = prog.bijection}

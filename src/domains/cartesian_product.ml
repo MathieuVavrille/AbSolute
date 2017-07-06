@@ -1,12 +1,40 @@
 module Env = Map.Make(struct type t=string let compare=compare end)
 module IntEnv = Map.Make(struct type t=int let compare=compare end)
+module A_d = All_different
 
 open Cspplus
 
 type action = Nothing | Affect of int * int * int list | Newmin of var * int | Newmax of var * int
 
-module Cartesian_int = struct
-  module S = Set_int
+module type Int_set =
+sig
+  type t
+
+  val empty : t
+
+  val length : t -> int
+  val of_bounds : int -> int -> t
+  val of_list : int list -> t
+  val delete : t -> int -> t
+  val is_empty : t -> bool
+  val is_singleton : t -> bool
+  val min : t -> int
+  val max : t -> int
+  val list_greater_eq : t -> int -> int list
+  val list_smaller_eq : t -> int -> int list
+  val to_list : t -> int list
+  val to_singleton : t -> int
+  val add_cst : t -> int -> t -> t
+  val add_domains : t -> t -> t
+  val mul_cst : t -> int -> t
+  val divise : t -> int -> t
+  val diff : t -> t -> t
+  val inter : t -> t -> t
+
+end
+
+
+module Cartesian_int (S:Int_set) = struct
 
   (* Type mutable, les fonctions de modifications renvoient unit! *)
   type t = S.t array
@@ -30,8 +58,8 @@ module Cartesian_int = struct
 
   (* Simple printing function *)
   let print abs prog = let i_to_v = fst prog.bijection in print_string "Domaine: ";
-    Array.iteri (fun ind (_, _, l) ->
-      print_string (i_to_v.(ind)^"="^string_of_list l)
+    Array.iteri (fun ind dom ->
+      print_string (i_to_v.(ind)^"="^string_of_list (S.to_list dom))
     ) abs; print_newline ()
 
   (*let print fmt (abs,prog) = let i_to_v = fst prog.bijection in
@@ -62,9 +90,6 @@ module Cartesian_int = struct
   (* true si le domaine devient inconsistent *)
   let delete abs var value =
     abs.(var) <- S.delete abs.(var) value; S.is_empty abs.(var)
-
-  let enumerate_var abs var =
-    let (_, _, l) = abs.(var) in l
 
   let is_inconsistent abs =
     Array.exists (fun (_, _, l) -> l=[]) abs
@@ -124,6 +149,12 @@ module Cartesian_int = struct
     | Mul_lin(coeff, Max_lin(var)) -> coeff * S.max abs.(var)
     | Cst_lin(c) -> c
 
+  let rec eval_eq eq abs = match eq with
+    | Add_lin(i1, i2) -> S.add_domains (eval_eq i1 abs)  (eval_eq i2 abs)
+    | Mul_lin(coeff, var) -> S.mul_cst abs.(var) coeff
+    | Cst_lin(c) -> S.of_list [c]
+
+
   let print_env affiche env = print_string "{";
     IntEnv.iter (fun i v ->
       print_int i; print_string ":"; affiche v; print_string "|") env;
@@ -175,8 +206,62 @@ module Cartesian_int = struct
 	 List.rev_append (add_cpl var (S.list_smaller_eq abs.(var) value_bound)) acc
     ) [] var_list
 
+  let ac_eq_lin abs tab var_list =
+    let add_cpl var l = List.map (fun value -> var, value) l in
+    List.fold_left (fun acc var ->
+      match tab.(var) with
+      | EQ_lin(coeff, expr) ->
+	 let right_set = eval_eq expr abs in
+	 let multiples = S.divise right_set coeff in
+	 let to_delete = add_cpl var (S.to_list (S.diff abs.(var) multiples)) in
+	 List.rev_append to_delete acc
+      | NEQ_lin(coeff, expr) ->
+	 let right_set = eval_eq expr abs in
+	 let multiples = S.divise right_set coeff in
+	 let to_delete = add_cpl var (S.to_list (S.inter abs.(var) multiples)) in
+	 if S.is_singleton multiples then List.rev_append to_delete acc
+	 else acc
+    ) [] var_list
+
+
+  (* We create all the graph each time, and the implementation is not efficient TODO: improve *)
+  let ac_all_dif abs var_list =
+    let nb_var = List.length var_list in
+    let nb_all_vars = Array.length abs in
+    let compteur =
+      let cpt = ref 0 in
+      fun () -> incr cpt; !cpt-1
+    in
+    let list_all_var_val, val_to_int = List.fold_left (fun (l_acc, env_acc) var ->
+      List.fold_left (fun (l_acc2, env_acc2) value ->
+	(var, value)::l_acc2, if IntEnv.mem value env_acc2 then env_acc2 else IntEnv.add value (compteur ()) env_acc2
+      ) (l_acc, env_acc) (S.to_list abs.(var))
+    ) ([], IntEnv.empty) var_list in
+    let nb_values = IntEnv.cardinal val_to_int in
+    let int_to_val = Array.make (compteur ()) 0 in
+    IntEnv.iter (fun value compt ->
+      int_to_val.(compt) <- value
+    ) val_to_int;
+    let start = nb_all_vars + nb_values in
+    let g = Array.make (start+2) [] in
+    List.iter (fun var ->
+      g.(var) <- List.map (fun value -> (IntEnv.find value val_to_int) + nb_all_vars) (S.to_list abs.(var));
+      g.(start) <- var::g.(start)
+    ) var_list;
+    Array.iteri (fun i value ->
+      g.(nb_all_vars+i) <- [start+1]
+    ) int_to_val;
+    List.fold_left (fun acc (var, value) ->
+      let g2 = Array.copy g in
+      g2.(var) <- [(IntEnv.find value val_to_int)+nb_all_vars];
+      if All_different.max_flow g2 start (start+1) = nb_var then acc else (var, value)::acc
+    ) [] list_all_var_val
+
+
+
+
   (* Function that will do the consistency on a constraint, depending on its kind (for linear, it will be bound consistency for example *)
-  let ac abs (constr, var_list, qual) prog = print_string "ac\n";
+  let ac abs (constr, var_list, qual) prog = (*print_string "ac\n";*)
     match qual with
     | Other(compt, sup) ->
     (* Function to find all the values to delete *)
@@ -197,7 +282,7 @@ module Cartesian_int = struct
 	done) var_list;
       (* The recursive function used to search in all the possible instanciations *)
       let rec aux l = match l with
-	| [] -> if is_satisfied constr instanciation then begin (*print_string "Ins: "; print_ins print_int instanciation; print_newline ();*)
+	| [] -> if is_satisfied constr instanciation then begin(*print_string "Ins: "; print_ins print_int instanciation; print_newline ();*)
 	  List.iter (fun var ->
 	    let value = instanciation.(var) in
 	    let new_compteur = try IntEnv.find value compt.(var) + 1 with _ -> 1 in
@@ -207,21 +292,22 @@ module Cartesian_int = struct
 	  ) var_list
 	end
 	| x::q -> (*print_int x; print_newline ();*)
-	   let values = enumerate_var abs x in
+	   let values = S.to_list abs.(x) in
 	   List.iter (fun value -> (*print_int x; print_string " "; print_int value;print_newline ();*)
 	     instanciation.(x) <- value; aux q
 	   ) values
       in (*print_list print_int var_list;*)aux var_list;
-      find_non_supported ()
+      (*print_comp compt;*)find_non_supported ()
     end
       else find_non_supported ()
 
-    | Ineq_lin(tab) -> print_string (ineq_lin_to_string tab);bc_ineq abs tab var_list
-    | Eq_lin(tab) -> failwith "AC of eq_lin"
+    | Ineq_lin(tab) -> (*print_string (ineq_lin_to_string tab);*)bc_ineq abs tab var_list
+    | Eq_lin(tab) -> ac_eq_lin abs tab var_list
+    | All_dif -> ac_all_dif abs var_list
 
   (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
-  let delete_from_constr abs var value (constr, vars_list, qual)  = (*print_constr c;*)print_string ("delete_from_constr "^string_of_int var^" "^string_of_int value^"\n");match qual with
-    | Other(compt, sup) -> if not (is_support_empty compt && is_support_empty sup) then begin
+  let delete_from_constr abs var value (constr, var_list, qual)  = (*print_constr c;print_string ("delete_from_constr "^string_of_int var^" "^string_of_int value^"\n");*)match qual with
+    | Other(compt, sup) ->(* print_comp compt;let _ = read_line () in *)if not (is_support_empty compt && is_support_empty sup) then begin
       let tuple_list = IntEnv.find value sup.(var) in
        (*print_list tuple_list print_ins;*)
        (* Dans toutes les listes de supports on supprime ceux à supprimer, et on décrémente les compteurs *)
@@ -238,10 +324,11 @@ module Cartesian_int = struct
 	   | 1 when d_var <> var-> (d_var, d_value)::to_delete
 	   | x when x < 1 -> (*print_string ("Compt:"^string_of_int d_var^" "^string_of_int d_value);*)failwith "Erreur lors de la suppression du support, compteur trop petit"
 	   | _ -> to_delete
-	 ) new_to_delete vars_list
+	 ) new_to_delete var_list
        ) [] tuple_list end else []
-    | Ineq_lin(tab) -> bc_ineq abs tab vars_list
-    | Eq_lin(tab) -> failwith "delete from constr of eq_lin"
+    | Ineq_lin(tab) -> (*print_string (ineq_lin_to_string tab);*)bc_ineq abs tab var_list
+    | Eq_lin(tab) -> ac_eq_lin abs tab var_list
+    | All_dif -> ac_all_dif abs var_list (* TODO: having an incremental representation for faster deletion *)
 
 
   (* Makes the domain arc consistent, returns true if the domain is inconsistent *)
@@ -249,8 +336,8 @@ module Cartesian_int = struct
     let rec propagate_var l = match l with
       | [] -> false
       | (var, value)::q -> if delete abs var value then true else begin
-	print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print abs prog;
-	print_string ("min "^string_of_int var^" = "^string_of_int (S.min abs.(var))^" et max = "^string_of_int (S.max abs.(var))^"\n");
+	(*print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print_newline ();print abs prog;*)
+	(*print_string ("min "^string_of_int var^" = "^string_of_int (S.min abs.(var))^" et max = "^string_of_int (S.max abs.(var))^"\n");*)
 	let to_delete = List.fold_left (fun acc constr ->
 	  let new_delete = delete_from_constr abs var value constr in
 	  concat_lists new_delete acc (fun a b -> a = b)
@@ -278,11 +365,15 @@ module Cartesian_int = struct
       if new_mini > 1 && (new_mini < !mini || !mini <= 1) then begin mini := new_mini; var_mini := var end
     ) abs; !var_mini
 
+  let compteur =
+    let cpt = ref 0 in
+    fun () -> incr cpt; !cpt-1
+
   let rec backtrack prog abs action =
     if not (full_ac abs prog action) then begin
     match is_singleton abs with
     | true -> if is_a_solution abs (List.map (fun (a, _, _) -> a ) prog.constraints) then begin
-      print_string "Resultat: "; print abs prog;(*Format.printf "%a\n" print (abs,prog); *)print_newline () end
+      print_string ("Resultat "^string_of_int (compteur ())^": "); print abs prog;(*Format.printf "%a\n" print (abs,prog); *)end
       else begin
 	print_string "Erreur: ";print abs prog end
     | false -> (*List.iter (fun (_, _, Other(compt, sup)) -> print_string "Compteur = "; print_comp compt;
@@ -305,28 +396,22 @@ let anonymous_arg = Constant.set_prob
 
 let parse_args () = Arg.parse [("-trace", Constant.(Arg.Set trace), "Prints the solutions on standard output")] anonymous_arg ""
 
+  (*module Cart = Cartesian_int (Int_dom_list)*)
+module Cart_plus = Cartesian_int (Int_dom_set)
+
 let go () =
   let open Constant in
   parse_args ();
   let prog = File_parser.parse !problem in
   if !trace then Format.printf "%a" Csp.print prog;
   let progplus, to_add = Cspplus.create prog in
-  let abs = Cartesian_int.create_from_list to_add in
-  Cartesian_int.backtrack progplus abs Nothing
-
-
-(*let _ = add_to_list 9 [1;5;4;7;6;2;8] (fun a b -> a = b)
-
-  let _ = concat_lists [1;2;3;5;9] [1;5;4;7;6;2;8] (fun a b -> a = b)*)
+  let abs = Cart_plus.create_from_list to_add in
+  Cart_plus.backtrack progplus abs Nothing
 
 let generate_n_queens n = for i=1 to n do
     for j = i+1 to n do
       let s, t = "x"^string_of_int i, "x"^string_of_int j in
-      print_string (s^" != "^t^";\n");
+      (*print_string (s^" != "^t^";\n");*)
       print_string (s^"-"^t^" != "^string_of_int (i-j)^";\n");
       print_string (s^"-"^t^" != "^string_of_int (j-i)^";\n");
     done;done
-
-
-
-let _ = 5/(-2)
