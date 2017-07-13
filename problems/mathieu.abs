@@ -1,8 +1,11 @@
 init{
-  int x = [-4;4];
-  int y = [-4;4];
+  int x = [-20;20];
+  int y = [-20;20];
+  int z = [-20;20];
 }
-
 constraints{
-	x != y;
+	x + y = 3;
+	y*y+z*z > 10;
+	max(y, x^5) < 200;
+	x < y || x > z;
 }

@@ -130,7 +130,7 @@ module Cartesian_int (S:Int_set) = struct
     | And(e1, e2) -> is_satisfied e1 vars && is_satisfied e2 vars
     | Or(e1, e2) -> is_satisfied e1 vars || is_satisfied e2 vars
     | Not(e1) -> not (is_satisfied e1 vars)
-    (* A better algorithme will be used for alldiff constraint *)
+    (* A better algorithme is used for alldiff constraint consistency *)
     | Alldif(l) -> let rec aux l varl = match varl with
       | [] -> true
       | x::q when List.mem (vars.(x)) l -> false
@@ -176,6 +176,7 @@ module Cartesian_int (S:Int_set) = struct
     List.fold_left (fun acc value ->
       IntEnv.add value param acc) IntEnv.empty values
 
+  (* Consistency of linear inequality, in O(n^2), can be in O(n) *)
   let bc_ineq abs tab var_list =
     let add_cpl var l = List.map (fun value -> var, value) l in
     List.fold_left (fun acc var ->
@@ -206,6 +207,7 @@ module Cartesian_int (S:Int_set) = struct
 	 List.rev_append (add_cpl var (S.list_smaller_eq abs.(var) value_bound)) acc
     ) [] var_list
 
+  (* Consistency of linear equation (=, !=) *)
   let ac_eq_lin abs tab var_list =
     let add_cpl var l = List.map (fun value -> var, value) l in
     List.fold_left (fun acc var ->
@@ -225,6 +227,7 @@ module Cartesian_int (S:Int_set) = struct
 
 
   (* We create all the graph each time, and the implementation is not efficient TODO: improve *)
+  (* Consistency of all_different constraint *)
   let ac_all_dif abs var_list =
     let nb_var = List.length var_list in
     let nb_all_vars = Array.length abs in
@@ -261,14 +264,14 @@ module Cartesian_int (S:Int_set) = struct
 
 
   (* Function that will do the consistency on a constraint, depending on its kind (for linear, it will be bound consistency for example *)
-  let ac abs (constr, var_list, qual) prog = (*print_string "ac\n";*)
+  let ac abs (constr, var_list, qual) prog =
     match qual with
     | Other(compt, sup) ->
     (* Function to find all the values to delete *)
     let find_non_supported () =
       List.fold_left (fun acc var ->
 	IntEnv.fold (fun value nb_sup acc2 ->
-	  if nb_sup = 0 then (*print_string ("Non_supported "^string_of_int var^" "^string_of_int value^"\n");*)(var, value)::acc2 else (*(print_string ("Supported "^string_of_int var^" "^string_of_int value^" "^string_of_int nb_sup^"\n"); *)acc2
+	  if nb_sup = 0 then (var, value)::acc2 else acc2
 	) compt.(var) acc
       ) [] var_list
     in if is_support_empty compt && is_support_empty sup then begin
@@ -282,7 +285,7 @@ module Cartesian_int (S:Int_set) = struct
 	done) var_list;
       (* The recursive function used to search in all the possible instanciations *)
       let rec aux l = match l with
-	| [] -> if is_satisfied constr instanciation then begin(*print_string "Ins: "; print_ins print_int instanciation; print_newline ();*)
+	| [] -> if is_satisfied constr instanciation then begin
 	  List.iter (fun var ->
 	    let value = instanciation.(var) in
 	    let new_compteur = try IntEnv.find value compt.(var) + 1 with _ -> 1 in
@@ -291,25 +294,24 @@ module Cartesian_int (S:Int_set) = struct
 	    sup.(var) <- IntEnv.add value (Array.copy instanciation::new_support) sup.(var)
 	  ) var_list
 	end
-	| x::q -> (*print_int x; print_newline ();*)
+	| x::q ->
 	   let values = S.to_list abs.(x) in
-	   List.iter (fun value -> (*print_int x; print_string " "; print_int value;print_newline ();*)
+	   List.iter (fun value ->
 	     instanciation.(x) <- value; aux q
 	   ) values
-      in (*print_list print_int var_list;*)aux var_list;
-      (*print_comp compt;*)find_non_supported ()
+      in aux var_list;
+      find_non_supported ()
     end
       else find_non_supported ()
 
-    | Ineq_lin(tab) -> (*print_string (ineq_lin_to_string tab);*)bc_ineq abs tab var_list
+    | Ineq_lin(tab) -> bc_ineq abs tab var_list
     | Eq_lin(tab) -> ac_eq_lin abs tab var_list
     | All_dif -> ac_all_dif abs var_list
 
   (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
-  let delete_from_constr abs var value (constr, var_list, qual)  = (*print_constr c;print_string ("delete_from_constr "^string_of_int var^" "^string_of_int value^"\n");*)match qual with
-    | Other(compt, sup) ->(* print_comp compt;let _ = read_line () in *)if not (is_support_empty compt && is_support_empty sup) then begin
+  let delete_from_constr abs var value (constr, var_list, qual)  = match qual with
+    | Other(compt, sup) -> if not (is_support_empty compt && is_support_empty sup) then begin
       let tuple_list = IntEnv.find value sup.(var) in
-       (*print_list tuple_list print_ins;*)
        (* Dans toutes les listes de supports on supprime ceux à supprimer, et on décrémente les compteurs *)
        List.fold_left (fun new_to_delete inst ->
 	 List.fold_left (fun to_delete d_var ->
@@ -319,14 +321,13 @@ module Cartesian_int (S:Int_set) = struct
 	   let d_compt = compt.(d_var) in
 	   let nb_sup = IntEnv.find d_value d_compt in
 	   compt.(d_var) <- IntEnv.add d_value (nb_sup - 1) d_compt;
-	   (*print_string ("Deleting "^string_of_int d_var^" "^string_of_int d_value^" "^string_of_int nb_sup^" "^string_of_int (List.length (IntEnv.find d_value sup.(d_var)))^"\n");*)
 	   match nb_sup with
 	   | 1 when d_var <> var-> (d_var, d_value)::to_delete
-	   | x when x < 1 -> (*print_string ("Compt:"^string_of_int d_var^" "^string_of_int d_value);*)failwith "Erreur lors de la suppression du support, compteur trop petit"
+	   | x when x < 1 ->failwith "Erreur lors de la suppression du support, compteur trop petit"
 	   | _ -> to_delete
 	 ) new_to_delete var_list
        ) [] tuple_list end else []
-    | Ineq_lin(tab) -> (*print_string (ineq_lin_to_string tab);*)bc_ineq abs tab var_list
+    | Ineq_lin(tab) -> bc_ineq abs tab var_list
     | Eq_lin(tab) -> ac_eq_lin abs tab var_list
     | All_dif -> ac_all_dif abs var_list (* TODO: having an incremental representation for faster deletion *)
 
@@ -373,21 +374,21 @@ module Cartesian_int (S:Int_set) = struct
     if not (full_ac abs prog action) then begin
     match is_singleton abs with
     | true -> if is_a_solution abs (List.map (fun (a, _, _) -> a ) prog.constraints) then begin
-      print_string ("Resultat "^string_of_int (compteur ())^": "); print abs prog;(*Format.printf "%a\n" print (abs,prog); *)end
+      if true then (print_string ("Resultat "^string_of_int (compteur ())^": "); print abs prog;1)
+      else let _ = compteur () in 1 end
       else begin
-	print_string "Erreur: ";print abs prog end
+	print_string "Erreur: ";print abs prog;1 end
     | false -> (*List.iter (fun (_, _, Other(compt, sup)) -> print_string "Compteur = "; print_comp compt;
 		 print_string "\nSupport = ";print_sup sup; print_newline () ) prog.constraints;*)
        let var_split = variable_to_split abs in
        let list_split = S.to_list abs.(var_split) in
-       let nom_var = (fst prog.bijection).(var_split) in
-       print_string ("List_split "^nom_var); print_newline ();
-       List.iter (fun value -> (*print_string ("SPLIT sur "^string_of_int var_split^" val "^string_of_int value^"\n");*)
+       1 + List.fold_left (fun acc value -> (*print_string ("SPLIT sur "^string_of_int var_split^" val "^string_of_int value^"\n");*)
 	 let new_abs = copy abs in
 	 let new_prog = Cspplus.copy prog in
 	 let all_deleted = remove_from_list value list_split in
-	 backtrack new_prog new_abs (Affect(var_split, value, all_deleted))
-       ) list_split end
+	 acc + (backtrack new_prog new_abs (Affect(var_split, value, all_deleted)))
+       ) 0 list_split end
+    else 1
 
 end
 
@@ -406,12 +407,5 @@ let go () =
   if !trace then Format.printf "%a" Csp.print prog;
   let progplus, to_add = Cspplus.create prog in
   let abs = Cart_plus.create_from_list to_add in
-  Cart_plus.backtrack progplus abs Nothing
-
-let generate_n_queens n = for i=1 to n do
-    for j = i+1 to n do
-      let s, t = "x"^string_of_int i, "x"^string_of_int j in
-      (*print_string (s^" != "^t^";\n");*)
-      print_string (s^"-"^t^" != "^string_of_int (i-j)^";\n");
-      print_string (s^"-"^t^" != "^string_of_int (j-i)^";\n");
-    done;done
+  let nb_nodes = Cart_plus.backtrack progplus abs Nothing in
+  print_int nb_nodes;print_newline ();

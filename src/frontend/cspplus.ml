@@ -75,11 +75,11 @@ type ineq_lin_data = LT_lin of int * value lin_expr
 type eq_lin_data = EQ_lin of int * int lin_expr
 		   | NEQ_lin of int * int lin_expr
 
-
+(* Can be increased with other types (other global constraints) *)
 type qualification = Other of compteur * support
 		     | Eq_lin of eq_lin_data array
 		     | Ineq_lin of ineq_lin_data array
-		     | All_dif
+		     | All_dif (* of graph *)
 
 type constr = bexpr * var list * qualification (* * rang *)
 
@@ -289,13 +289,12 @@ let transform_to_linear constr nb_total_var = match constr with
   | Cmp(op, _, _) when op <> Csp.NEQ && op <> Csp.EQ ->
      let constr_data = Array.make nb_total_var (LT_lin(0, Cst_lin(0))) in
      let pos, neg, cst = split_pos_neg_constr constr in
-     (*VarSet.iter (fun (coeff, var) -> print_int var) pos; print_newline ();
-       VarSet.iter (fun (coeff, var) -> print_int var) neg; print_newline ();*)
+     (* We don't want to compute too many times the same thing *)
      let neg_min_right = to_right_side true false neg (Cst_lin(-cst)) in
      let neg_max_right = to_right_side false false neg (Cst_lin(-cst)) in
      let pos_min_left = to_right_side true false pos (Cst_lin(cst)) in
      let pos_max_left = to_right_side false false pos (Cst_lin(cst)) in
-     (* Rules for the bound consistency on linear constraints, with min and max of a variable *)
+     (* Rules for the bound consistency on linear constraints, with min and max of a variable, see CLP(FD) *)
      VarSet.iter (fun (coeff, var) ->
        let pos_removed = VarSet.remove (coeff, var) pos in
        match op with
@@ -347,29 +346,26 @@ let create prog =
   let all_var = Csp.get_vars prog in
   let nb_vars = List.length all_var in
   let int_to_vars = Array.make nb_vars "" in (* bijection from integers to variables, to be able to use arrays *)
-  let vars_to_int = List.fold_left (fun acc var ->
+  let vars_to_int = List.fold_left (fun acc var -> (* and from variables to integer *)
     let suiv = compteur () in
-    (*print_string (var^" -> "^string_of_int suiv^"\n");*)int_to_vars.(suiv) <- var;Env.add var suiv acc
+    int_to_vars.(suiv) <- var;Env.add var suiv acc
   ) Env.empty all_var in
   let list_constr_of_var = Array.make nb_vars [] in (* List of constraints in which there is the variable *)
   let constraints = List.map (fun constr -> (* List of constraints++ *)
-    (*Format.printf "%a\n" Csp.print_bexpr constr;*)
     let constr_plus = transform_constr constr vars_to_int in
     let vars = get_vars_constr constr_plus [] in
-    let new_constr = if is_constr_linear constr_plus then begin
-      let linear = transform_to_linear constr_plus nb_vars in
-      (*(match linear with
-      | Ineq_lin(a) -> print_string (ineq_lin_to_string a)
-      | Eq_lin(a) -> print_string (eq_lin_to_string a)
-	| _ -> ());*)
-      constr_plus, vars, linear(*transform_to_linear constr_plus nb_vars*) end
-      else match constr_plus with
-      | Alldif(l) -> constr_plus, vars, All_dif
-      | _ -> constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
+    let new_constr = if is_constr_linear constr_plus then
+	constr_plus, vars, transform_to_linear constr_plus nb_vars
+      else
+	match constr_plus with
+	| Alldif(l) -> constr_plus, vars, All_dif
+	| _ -> constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
+    (* the list of constraints for each variable *)
     List.iter (fun var ->
       list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
     ) vars; new_constr
   ) prog.Csp.constraints in
+  (* variables, domains for creation of abstract domain *)
   let vars_to_add = List.map (fun (_, v, d) ->
     Env.find v vars_to_int, to_dom_int d
   ) prog.Csp.init in
