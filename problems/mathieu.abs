@@ -1,11 +1,8 @@
 init{
-  int x = [-20;20];
-  int y = [-20;20];
-  int z = [-20;20];
+  int x = [0;5];
+  int y = [0;5];
+  int z = [0;5];
 }
 constraints{
-	x + y = 3;
-	y*y+z*z > 10;
-	max(y, x^5) < 200;
-	x < y || x > z;
+	all_different(x, y, z);
 }

@@ -143,6 +143,15 @@ module Cartesian_int (S:Int_set) = struct
       List.for_all (fun c -> is_satisfied c sol) constrs end
     else false
 
+  let delete_all abs =
+    let l = ref [] in
+    Array.iteri (fun var vals ->
+      List.iter (fun value ->
+	l:= (var, value)::!l
+      ) (S.to_list vals)
+    ) abs;
+    !l
+
   let rec eval_ineq ineq abs = match ineq with
     | Add_lin(i1, i2) -> eval_ineq i1 abs + eval_ineq i2 abs
     | Mul_lin(coeff, Min_lin(var)) -> coeff * S.min abs.(var)
@@ -171,6 +180,10 @@ module Cartesian_int (S:Int_set) = struct
   let print_sup = print_ins (print_env (print_list (print_ins print_int)))
 
   let print_comp = print_ins (print_env print_int)
+
+  let print_graph = print_ins (print_list print_int)
+
+  let print_couple affiche (x, y) = print_string "(";affiche x; print_string ",";affiche y;print_string ")"
 
   let create_intenv values param =
     List.fold_left (fun acc value ->
@@ -226,41 +239,72 @@ module Cartesian_int (S:Int_set) = struct
     ) [] var_list
 
 
+  let all_dif_incremental data nb_vars = (*print_string "all_dif_incremental\n";print_graph data.graph;*)
+    let start = Array.length data.graph - 2 in
+    let g = Array.make start [] in
+    Array.iteri (fun i l ->
+      List.iter (fun v -> if v < start then
+	  g.(v) <- i::g.(v)
+      ) data.graph.(i)
+    ) g;
+    let all_unmatched = Array.make start false in
+    List.iter (fun (v, w) ->
+      all_unmatched.(v) <- true;
+      all_unmatched.(w) <- true
+    ) data.matching;
+    let l = ref [] in
+    Array.iteri (fun i v -> if not v then l:= i::!l) all_unmatched;
+    let possible_unmatched = A_d.comp_fort_connex g in
+    let unmatched = A_d.all_from_unmatched g !l possible_unmatched in
+    let real_unmatched = List.fold_left (fun acc edge ->
+      A_d.Cset.remove edge acc
+    ) unmatched data.matching in
+    let to_delete_tab = A_d.Cset.elements real_unmatched in
+    let to_delete = List.map (fun (x, y) ->
+      x, data.int_to_val.(y-nb_vars)
+    ) to_delete_tab in to_delete
+
+
+
   (* We create all the graph each time, and the implementation is not efficient TODO: improve *)
   (* Consistency of all_different constraint *)
-  let ac_all_dif abs var_list =
-    let nb_var = List.length var_list in
-    let nb_all_vars = Array.length abs in
-    let compteur =
-      let cpt = ref 0 in
-      fun () -> incr cpt; !cpt-1
-    in
-    let list_all_var_val, val_to_int = List.fold_left (fun (l_acc, env_acc) var ->
-      List.fold_left (fun (l_acc2, env_acc2) value ->
-	(var, value)::l_acc2, if IntEnv.mem value env_acc2 then env_acc2 else IntEnv.add value (compteur ()) env_acc2
-      ) (l_acc, env_acc) (S.to_list abs.(var))
-    ) ([], IntEnv.empty) var_list in
-    let nb_values = IntEnv.cardinal val_to_int in
-    let int_to_val = Array.make (compteur ()) 0 in
-    IntEnv.iter (fun value compt ->
-      int_to_val.(compt) <- value
-    ) val_to_int;
-    let start = nb_all_vars + nb_values in
-    let g = Array.make (start+2) [] in
-    List.iter (fun var ->
-      g.(var) <- List.map (fun value -> (IntEnv.find value val_to_int) + nb_all_vars) (S.to_list abs.(var));
-      g.(start) <- var::g.(start)
-    ) var_list;
-    Array.iteri (fun i value ->
-      g.(nb_all_vars+i) <- [start+1]
-    ) int_to_val;
-    List.fold_left (fun acc (var, value) ->
-      let g2 = Array.copy g in
-      g2.(var) <- [(IntEnv.find value val_to_int)+nb_all_vars];
-      if All_different.max_flow g2 start (start+1) = nb_var then acc else (var, value)::acc
-    ) [] list_all_var_val
-
-
+  let ac_all_dif abs data var_list = (*print_string "Ac_all_dif\n";*)
+    if data.matching = [] then begin
+      let nb_var = List.length var_list in
+      let nb_all_vars = Array.length abs in
+      let compteur =
+	let cpt = ref 0 in
+	fun () -> incr cpt; !cpt-1
+      in
+      let list_all_var_val, val_to_int = List.fold_left (fun (l_acc, env_acc) var ->
+	List.fold_left (fun (l_acc2, env_acc2) value ->
+	  (var, value)::l_acc2, if IntEnv.mem value env_acc2 then env_acc2 else IntEnv.add value (compteur ()) env_acc2
+	) (l_acc, env_acc) (S.to_list abs.(var))
+      ) ([], IntEnv.empty) var_list in
+      let nb_values = IntEnv.cardinal val_to_int in
+      let int_to_val = Array.make (compteur ()) 0 in
+      IntEnv.iter (fun value compt ->
+	int_to_val.(compt) <- value
+      ) val_to_int;
+      let start = nb_all_vars + nb_values in
+      let g = Array.make (start+2) [] in
+      List.iter (fun var ->
+	g.(var) <- List.map (fun value -> (IntEnv.find value val_to_int) + nb_all_vars) (S.to_list abs.(var));
+	g.(start) <- var::g.(start)
+      ) var_list;
+      Array.iteri (fun i value ->
+	g.(nb_all_vars+i) <- [start+1]
+      ) int_to_val;
+      let flot_max = A_d.max_flow g start (start+1) in
+      let couplage =  List.fold_left (fun acc v -> (List.hd g.(v), v)::acc) [] g.(start+1) in
+      if flot_max <> nb_var then delete_all abs
+      else begin
+	data.graph <- g; data.matching <- couplage; data.val_to_int <- val_to_int; data.int_to_val <- int_to_val;
+	all_dif_incremental data nb_all_vars
+      end
+    end
+    else
+      all_dif_incremental data (Array.length abs)
 
 
   (* Function that will do the consistency on a constraint, depending on its kind (for linear, it will be bound consistency for example *)
@@ -306,7 +350,8 @@ module Cartesian_int (S:Int_set) = struct
 
     | Ineq_lin(tab) -> bc_ineq abs tab var_list
     | Eq_lin(tab) -> ac_eq_lin abs tab var_list
-    | All_dif -> ac_all_dif abs var_list
+    | All_dif(data) -> ac_all_dif abs data var_list
+
 
   (* Function that will delete the value from the constraint, and return the list of variables/values to delete *)
   let delete_from_constr abs var value (constr, var_list, qual)  = match qual with
@@ -329,12 +374,29 @@ module Cartesian_int (S:Int_set) = struct
        ) [] tuple_list end else []
     | Ineq_lin(tab) -> bc_ineq abs tab var_list
     | Eq_lin(tab) -> ac_eq_lin abs tab var_list
-    | All_dif -> ac_all_dif abs var_list (* TODO: having an incremental representation for faster deletion *)
-
+    | All_dif(data) ->
+       let deleted = IntEnv.find value data.val_to_int + Array.length abs in
+       if List.mem deleted data.graph.(var) then begin (* the matching is unchanged *)
+	 data.graph.(var) <- List.filter (fun x -> x <> deleted) data.graph.(var);
+	 all_dif_incremental data (Array.length abs)
+       end
+       else begin (* we compute a new matching *)
+	 let start = Array.length data.graph - 2 in
+	 data.graph.(deleted) <- (start+1)::List.filter (fun x -> x <> var) data.graph.(deleted);
+	 data.graph.(start+1) <- List.filter (fun x -> x <> deleted) data.graph.(start+1);
+	 data.graph.(var) <- List.filter (fun x -> x <> start) data.graph.(var);
+	 data.graph.(start) <- var::data.graph.(start);
+	 let f =  A_d.max_flow data.graph start (start+1) in
+	 if f <> 1 then begin (*print_string ("deleta_all "^string_of_int f^"\n");*)delete_all abs end
+	 else begin
+	   data.matching <- List.fold_left (fun acc v -> (List.hd data.graph.(v), v)::acc) [] data.graph.(start+1);
+	   all_dif_incremental data (Array.length abs)
+	 end
+       end
 
   (* Makes the domain arc consistent, returns true if the domain is inconsistent *)
   let full_ac abs prog action = (*print_string "fullac\n"; print abs prog;*)
-    let rec propagate_var l = match l with
+    let rec propagate_var l = (*print_string "Propagate_var\n";print_list (print_couple print_int) l;*)match l with
       | [] -> false
       | (var, value)::q -> if delete abs var value then true else begin
 	(*print_string "appel "; print_list (fun (v, w) -> print_int v;print_int w) l; print_newline ();print abs prog;*)
@@ -374,7 +436,7 @@ module Cartesian_int (S:Int_set) = struct
     if not (full_ac abs prog action) then begin
     match is_singleton abs with
     | true -> if is_a_solution abs (List.map (fun (a, _, _) -> a ) prog.constraints) then begin
-      if true then (print_string ("Resultat "^string_of_int (compteur ())^": "); print abs prog;1)
+      if false then (print_string ("Resultat "^string_of_int (compteur ())^": "); print abs prog;1)
       else let _ = compteur () in 1 end
       else begin
 	print_string "Erreur: ";print abs prog;1 end
@@ -408,4 +470,4 @@ let go () =
   let progplus, to_add = Cspplus.create prog in
   let abs = Cart_plus.create_from_list to_add in
   let nb_nodes = Cart_plus.backtrack progplus abs Nothing in
-  print_int nb_nodes;print_newline ();
+  print_int nb_nodes;print_newline ()

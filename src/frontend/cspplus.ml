@@ -75,11 +75,14 @@ type ineq_lin_data = LT_lin of int * value lin_expr
 type eq_lin_data = EQ_lin of int * int lin_expr
 		   | NEQ_lin of int * int lin_expr
 
+type matching_graph = {mutable graph: int list array; mutable matching: (int*int) list;
+		       mutable val_to_int: int IntEnv.t; mutable int_to_val: int array}
+
 (* Can be increased with other types (other global constraints) *)
 type qualification = Other of compteur * support
 		     | Eq_lin of eq_lin_data array
 		     | Ineq_lin of ineq_lin_data array
-		     | All_dif (* of graph *)
+		     | All_dif of matching_graph
 
 type constr = bexpr * var list * qualification (* * rang *)
 
@@ -358,7 +361,7 @@ let create prog =
 	constr_plus, vars, transform_to_linear constr_plus nb_vars
       else
 	match constr_plus with
-	| Alldif(l) -> constr_plus, vars, All_dif
+	| Alldif(l) -> constr_plus, vars, All_dif({graph = Array.make 0 [];matching = []; val_to_int = IntEnv.empty; int_to_val = Array.make 0 0})
 	| _ -> constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
     (* the list of constraints for each variable *)
     List.iter (fun var ->
@@ -380,7 +383,12 @@ let copy prog =
        List.iter (fun var ->
 	 list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
        ) var_list; new_constr
-    | _ ->
+    | All_dif(data) ->
+       let new_constr = (c, var_list, All_dif({graph=Array.copy data.graph; matching = data.matching;val_to_int = data.val_to_int; int_to_val = data.int_to_val})) in
+       List.iter (fun var ->
+	 list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
+       ) var_list; new_constr
+    |  _ ->
        let new_constr = (c, var_list, qual) in
        List.iter (fun var ->
 	 list_constr_of_var.(var) <- new_constr::list_constr_of_var.(var)
