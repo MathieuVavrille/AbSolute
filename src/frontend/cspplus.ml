@@ -361,7 +361,7 @@ let create prog =
 	constr_plus, vars, transform_to_linear constr_plus nb_vars
       else
 	match constr_plus with
-	| Alldif(l) -> constr_plus, vars, All_dif({graph = Array.make 0 [];matching = []; val_to_int = IntEnv.empty; int_to_val = Array.make 0 0})
+	  | Alldif(l) -> constr_plus, vars, All_dif({graph = Array.make 0 [];matching = []; val_to_int = IntEnv.empty; int_to_val = Array.make 0 0})
 	| _ -> constr_plus, vars, Other(Array.make nb_vars IntEnv.empty, Array.make nb_vars IntEnv.empty) in
     (* the list of constraints for each variable *)
     List.iter (fun var ->
